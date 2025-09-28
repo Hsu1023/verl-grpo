@@ -34,11 +34,11 @@ def extract_solution(solution_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default=None, help="The save directory for the preprocessed dataset.")
+    parser.add_argument("--local_dir", default="/home/yichen/verl/data/gsm8k", help="The save directory for the preprocessed dataset.")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
     parser.add_argument(
-        "--local_save_dir", default="~/data/gsm8k", help="The save directory for the preprocessed dataset."
+        "--local_save_dir", default="/home/yichen/verl/data/gsm8k", help="The save directory for the preprocessed dataset."
     )
 
     args = parser.parse_args()
@@ -46,15 +46,13 @@ if __name__ == "__main__":
 
     data_source = "openai/gsm8k"
 
-    if local_dataset_path is not None:
-        dataset = datasets.load_dataset(local_dataset_path, "main")
-    else:
-        dataset = datasets.load_dataset(data_source, "main")
+    # dataset = datasets.load_dataset("openai/gsm8k", "main")
 
-    train_dataset = dataset["train"]
-    test_dataset = dataset["test"]
+    train_dataset = datasets.load_dataset("openai/gsm8k", "main", split="train")
+    test_dataset = datasets.load_dataset("openai/gsm8k", "main", split="test")
 
-    instruction_following = 'Let\'s think step by step and output the final answer after "####".'
+    # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
+    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
@@ -67,7 +65,7 @@ if __name__ == "__main__":
             solution = extract_solution(answer_raw)
             assert solution is not None, f"Failed to extract solution from answer: {answer_raw}"
             data = {
-                "data_source": data_source,
+                "data_source": 'grpo_gsm8k',
                 "prompt": [
                     {
                         "role": "user",
@@ -87,8 +85,9 @@ if __name__ == "__main__":
 
         return process_fn
 
-    train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
-    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
+    new_cols = ["data_source", "prompt", "ability", "reward_model"]
+    train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True,remove_columns=[c for c in train_dataset.column_names if c not in new_cols])
+    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True,remove_columns=[c for c in test_dataset.column_names if c not in new_cols])
 
     hdfs_dir = args.hdfs_dir
     local_save_dir = args.local_dir

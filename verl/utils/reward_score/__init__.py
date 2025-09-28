@@ -40,7 +40,23 @@ def default_compute_score(
     Raises:
         NotImplementedError: If the reward function is not implemented for the given data source.
     """
-    if data_source == "openai/gsm8k":
+    if data_source == "grpo" or data_source.startswith("grpo_"):
+        # import re
+        # match = re.findall(r"####\s*([^\n]+)", solution_str)
+        # solution_str = match[-1].strip() if match else "[INVALID]"
+        
+        # if 'math500' in data_source.lower():
+        #     from . import math_reward
+        #     res = math_reward.compute_score(solution_str, ground_truth)
+        # elif 'aime' in data_source.lower() or 'minerva' in data_source.lower():        
+        #     from . import math_dapo
+        #     res = math_dapo.compute_score(solution_str, ground_truth)
+        # else:
+        #     from . import grpo
+        #     res = grpo.compute_score(solution_str, ground_truth)
+        from . import math_reward
+        res = math_reward.compute_score(solution_str, ground_truth)
+    elif data_source == "openai/gsm8k":
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)

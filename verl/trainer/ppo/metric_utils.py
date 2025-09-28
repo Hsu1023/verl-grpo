@@ -433,10 +433,12 @@ def process_validation_metrics(
 
     # Calculate metrics for each group
     data_src2uid2var2metric = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    # print(ata_src2uid2var2vals)
+    # assert 0, data_src2uid2var2vals
     for data_source, uid2var2vals in data_src2uid2var2vals.items():
         for uid, var2vals in uid2var2vals.items():
             for var_name, var_vals in var2vals.items():
-                if isinstance(var_vals[0], str):
+                if isinstance(var_vals[0], str) or var_vals[0] is None:
                     continue
 
                 metric = {}

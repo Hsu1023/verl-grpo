@@ -1,0 +1,9 @@
+python /home/yichen/verl/examples/data_preprocess/grpo/aime2024.py
+python /home/yichen/verl/examples/data_preprocess/grpo/aime2025.py
+python /home/yichen/verl/examples/data_preprocess/grpo/amc23.py
+python /home/yichen/verl/examples/data_preprocess/grpo/olympiadbench.py
+python /home/yichen/verl/examples/data_preprocess/grpo/omnimath.py
+python /home/yichen/verl/examples/data_preprocess/grpo/math500.py
+python /home/yichen/verl/examples/data_preprocess/grpo/minervamath.py
+python /home/yichen/verl/examples/data_preprocess/grpo/gsm8k.py
+python /home/yichen/verl/examples/data_preprocess/grpo/dapo17k.py

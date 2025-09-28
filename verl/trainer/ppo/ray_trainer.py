@@ -632,7 +632,12 @@ class RayPPOTrainer:
 
         data_sources = np.concatenate(data_source_lst, axis=0)
 
+        # try:
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
+        # except:
+        #     print(len(data_sources), len(sample_uids))
+        #     print(reward_extra_infos_dict)
+        #     assert 0, "process_validation_metrics error!"
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"

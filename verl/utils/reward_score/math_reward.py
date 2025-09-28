@@ -16,16 +16,26 @@
 
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.0
+    # if "\left( 3, \frac{\pi}{2} \right)" or "\\left( 3, \\frac{" in ground_truth:
+    #     assert 0, solution_str + " " + ground_truth
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)
         if string_in_last_boxed is not None:
+            format_score = 1.0
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 retval = 1.0
+        else:
+            format_score = 0.0
     except Exception as e:
         print(e)
 
-    return retval
+    # return retval
+    return {
+        "score": retval + format_score,
+        "acc": retval,
+        "pred": solution_str,
+    }
 
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
@@ -222,3 +232,15 @@ def strip_string(string):
     string = fix_a_slash_b(string)
 
     return string
+
+if __name__ == "__main__":
+    # some quick tests
+    # print(compute_score("\\boxed{\\left(3, \\frac{\\pi}{2}\\right)}","\\left( 3, \\frac{\\pi}{2} \\right)"))
+    from math_verify import parse, verify
+    gold = "\\left(3, \\frac{\\pi}{2}\\right)"
+    answer = "\\left(3, \\frac{\\pi}{2}\\right)"
+    gold = parse(gold)
+    answer = parse(answer)
+
+    # Order here is important!
+    print(verify(gold, answer))
