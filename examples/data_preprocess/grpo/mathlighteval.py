@@ -24,32 +24,31 @@ import datasets
 from verl.utils.hdfs_io import copy, makedirs
 
 
+from verl.utils.reward_score.math_reward import last_boxed_only_string, remove_boxed
+
+
 def extract_solution(solution_str):
-    solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
-    assert solution is not None
-    final_solution = solution.group(0)
-    final_solution = final_solution.split("#### ")[1].replace(",", "")
-    return final_solution
+    return remove_boxed(last_boxed_only_string(solution_str))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="/home/yichen/verl/data/gsm8k", help="The save directory for the preprocessed dataset.")
+    parser.add_argument("--local_dir", default="/home/yichen/verl/data/mathlighteval", help="The save directory for the preprocessed dataset.")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
     parser.add_argument(
-        "--local_save_dir", default="/home/yichen/verl/data/gsm8k", help="The save directory for the preprocessed dataset."
+        "--local_save_dir", default="/home/yichen/verl/data/mathlighteval", help="The save directory for the preprocessed dataset."
     )
 
     args = parser.parse_args()
     local_dataset_path = args.local_dataset_path
 
-    data_source = "openai/gsm8k"
+    data_source = "DigitalLearningGmbH/MATH-lighteval"
 
     # dataset = datasets.load_dataset("openai/gsm8k", "main")
 
-    train_dataset = datasets.load_dataset("openai/gsm8k", "main", split="train")
-    test_dataset = datasets.load_dataset("openai/gsm8k", "main", split="test")
+    train_dataset = datasets.load_dataset("DigitalLearningGmbH/MATH-lighteval", "default", split="train")
+    test_dataset = datasets.load_dataset("DigitalLearningGmbH/MATH-lighteval", "default", split="test")
 
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
     # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
@@ -59,17 +58,14 @@ if __name__ == "__main__":
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
         def process_fn(example, idx):
-            question_raw = example.pop("question")
+            question_raw = example.pop("problem")
 
             question = question_raw + " " + instruction_following
 
-            answer_raw = example.pop("answer")
+            answer_raw = example.pop("solution")
             solution = extract_solution(answer_raw)
-            assert solution is not None, f"Failed to extract solution from answer: {answer_raw}"
-            
-            assert "\\boxed" not in solution, f"Answer already contains \\boxed: {solution}"
             data = {
-                "data_source": 'grpo_gsm8k',
+                "data_source": 'grpo_mathlighteval',
                 "prompt": [
                     {
                         "role": "user",
@@ -78,12 +74,6 @@ if __name__ == "__main__":
                 ],
                 "ability": "math",
                 "reward_model": {"style": "rule", "ground_truth": solution},
-                "extra_info": {
-                    "split": split,
-                    "index": idx,
-                    "answer": answer_raw,
-                    "question": question_raw,
-                },
             }
             return data
 

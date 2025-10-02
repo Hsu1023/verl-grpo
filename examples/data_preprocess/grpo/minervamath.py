@@ -33,7 +33,9 @@ if __name__ == "__main__":
     # train_dataset = dataset["train"]
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
     
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    
+    instruction_following = "You should first think about the reasoning process in the mind and then provide me with the answer. And the answer should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$.' (without quotes) where ANSWER is just the final number or expression that solves the problem."
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
@@ -45,6 +47,8 @@ if __name__ == "__main__":
             answer_raw = example.pop("answer")
             # solution = extract_solution(answer_raw)
             solution = answer_raw
+            
+            assert "\\boxed" not in solution, f"Answer already contains \\boxed: {solution}"
             data = {
                 "data_source": 'grpo_minervamath',
                 "prompt": [

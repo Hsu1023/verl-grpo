@@ -36,7 +36,9 @@ if __name__ == "__main__":
 
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
     
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    
+    instruction_following = "You should first think about the reasoning process in the mind and then provide me with the answer. And the answer should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$.' (without quotes) where ANSWER is just the final number or expression that solves the problem."
 
     def make_map_fn():
         def process_fn(example, idx):
@@ -46,6 +48,17 @@ if __name__ == "__main__":
 
             question = question + " " + instruction_following
             solution = example.pop("final_answer")[0]
+            
+            print(solution)
+            import re
+            matches = re.findall(r'\$?\\boxed\{([^}]*)\}\$?', solution)
+            solution = matches[-1] if matches else solution
+            # assert 0
+            # matches = re.findall(r'$([^}]*)$', solution)
+            # solution = matches[-1] if matches else solution
+            
+            print(solution)
+            
             for key in ['id', 'question', 'solution', 'final_answer', 'context', 'image_1',
                 'image_2', 'image_3', 'image_4', 'image_5', 'modality', 'difficulty',
                 'is_multiple_answer', 'unit', 'answer_type', 'error', 'question_type',

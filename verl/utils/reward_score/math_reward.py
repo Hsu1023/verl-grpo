@@ -27,14 +27,16 @@ def compute_score(solution_str, ground_truth) -> float:
                 retval = 1.0
         else:
             format_score = 0.0
+            answer = solution_str
     except Exception as e:
         print(e)
+    
 
     # return retval
     return {
         "score": retval + format_score,
         "acc": retval,
-        "pred": solution_str,
+        "pred": answer,
     }
 
 

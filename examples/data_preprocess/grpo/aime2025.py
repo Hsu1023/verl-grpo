@@ -42,7 +42,9 @@ if __name__ == "__main__":
     # 4) 合并
     dataset = datasets.concatenate_datasets([ds_a, ds_b])
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    
+    instruction_following = "You should first think about the reasoning process in the mind and then provide me with the answer. And the answer should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$.' (without quotes) where ANSWER is just the final number or expression that solves the problem."
 
     # add a row to each data item that represents a unique id
     # def make_map_fn(split):
@@ -62,6 +64,7 @@ if __name__ == "__main__":
 
             question = question + " " + instruction_following
             solution = example["answer"]
+            assert "\\boxed" not in solution, f"Answer already contains \\boxed: {solution}"
             data = {
                 # "data_source": example['data_source'],
                 

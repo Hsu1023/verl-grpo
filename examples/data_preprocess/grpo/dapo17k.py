@@ -38,7 +38,8 @@ if __name__ == "__main__":
     # train_dataset = dataset["train"]
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
     
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    instruction_following = "You should first think about the reasoning process in the mind and then provide me with the answer. And the answer should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$.' (without quotes) where ANSWER is just the final number or expression that solves the problem."
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
@@ -48,6 +49,7 @@ if __name__ == "__main__":
             question = question_raw + " " + instruction_following
 
             answer_raw = example.pop("solution")
+            assert "\\boxed" not in answer_raw, f"Answer already contains \\boxed: {answer_raw}"
             # solution = extract_solution(answer_raw)
             solution = answer_raw
             data = {

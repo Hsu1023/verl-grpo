@@ -3,7 +3,7 @@ export RAY_BACKEND_LOG_LEVEL=FATAL
 export TMPDIR=$HOME/verl/tmp
 export HYDRA_FULL_ERROR=1
 save_path=$HOME/verl/output
-exp_name=qwen2.5-3b_dapo17k_grpo_5e-5
+exp_name=qwen2.5-3b_dapo17k_grpo_3e-5_4
 project='verl_grpo_example_gsm8k'
 
 aime2024_path=$HOME/verl/data/aime2024/test.parquet
@@ -23,8 +23,8 @@ VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$gsm8k_path', '$
 mkdir -p $HOME/verl/checkpoints/$exp_name
 
     # data.train_files=/home/yichen/verl/data/dapo17k/train.parquet \
-
-CUDA_VISIBLE_DEVICES=1,2,5,6 python3 -m verl.trainer.main_ppo \
+# 32 / 2
+CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=4 \
     trainer.val_before_train=True \
     algorithm.adv_estimator=grpo \
@@ -34,22 +34,22 @@ CUDA_VISIBLE_DEVICES=1,2,5,6 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=64 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=3072 \
+    data.max_response_length=1536 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=2048 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=/home/yichen/open-r1/qwen2.5-3b \
-    actor_rollout_ref.actor.optim.lr=5e-5 \
+    actor_rollout_ref.actor.optim.lr=3e-5 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.lora_rank=64 \
     actor_rollout_ref.model.lora_alpha=32 \
     actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=5e-4 \
+    actor_rollout_ref.actor.kl_loss_coef=1e-3 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.entropy_coeff=5e-4 \
+    actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
@@ -68,7 +68,7 @@ CUDA_VISIBLE_DEVICES=1,2,5,6 python3 -m verl.trainer.main_ppo \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.test_freq=20 \
-    trainer.total_epochs=3 "$@" 2>&1 | tee -a $HOME/verl/checkpoints/$exp_name/train.log
+    trainer.total_epochs=5 "$@" 2>&1 | tee -a $HOME/verl/checkpoints/$exp_name/train.log
     #  \
 
 # CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m verl.trainer.main_ppo \

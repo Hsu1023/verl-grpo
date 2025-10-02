@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import re
-folder_path = '/home/yichen/verl/checkpoints/qwen2.5-3b_dapo17k_grpo_3e-5'
+folder_path = '/home/yichen/verl/checkpoints/qwen2.5-3b_dapo17k_grpo_1e-6_math'
 path = f'{folder_path}/train.log'
 
 datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025']

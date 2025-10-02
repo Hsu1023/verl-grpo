@@ -36,7 +36,9 @@ if __name__ == "__main__":
 
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
     
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    
+    instruction_following = "You should first think about the reasoning process in the mind and then provide me with the answer. And the answer should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$.' (without quotes) where ANSWER is just the final number or expression that solves the problem."
 
     def make_map_fn():
         def process_fn(example, idx):
@@ -46,6 +48,7 @@ if __name__ == "__main__":
 
             question = question + " " + instruction_following
             solution = example["answer"]
+            assert "\\boxed" not in solution, f"Answer already contains \\boxed: {solution}"
             data = {
                 # "data_source": example['data_source'],
                 
