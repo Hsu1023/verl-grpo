@@ -3,7 +3,7 @@ export RAY_BACKEND_LOG_LEVEL=FATAL
 export TMPDIR=$HOME/verl/tmp
 export HYDRA_FULL_ERROR=1
 save_path=$HOME/verl/output
-exp_name=qwen3-8b_dapo17k_grpo_3e-5
+exp_name=qwen3-8b_grpo_3e-5
 project='verl_grpo_example_gsm8k'
 
 aime2024_path=$HOME/verl/data/aime2024/test.parquet

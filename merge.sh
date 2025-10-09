@@ -1,1 +1,1 @@
-python scripts/legacy_model_merger.py merge  --backend fsdp  --local_dir  /home/yichen/verl/checkpoints/qwen2.5-3b_dapo17k_grpo_3e-5_4/global_step_270/actor --target_dir /home/yichen/verl/checkpoints/merged --hf_model_path /home/yichen/open-r1/qwen2.5-3b
+python scripts/legacy_model_merger.py merge  --backend fsdp  --local_dir  /home/yichen/verl/checkpoints/qwen2.5-3b_grpo_3e-5_4/global_step_270/actor --target_dir /home/yichen/verl/checkpoints/merged --hf_model_path /home/yichen/open-r1/qwen2.5-3b

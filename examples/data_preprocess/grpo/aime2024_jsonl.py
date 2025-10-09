@@ -1,0 +1,101 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Preprocess the DAPO-Math-17k dataset to multiturn format
+"""
+
+import argparse
+import json
+import os
+
+import datasets
+
+from verl.utils.hdfs_io import copy, makedirs
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local_dir", default="/home/yichen/verl/data/aime2024")
+    parser.add_argument("--hdfs_dir", default=None)
+
+    args = parser.parse_args()
+
+    data_path = "math-ai/aime24"
+    dataset = datasets.load_dataset(data_path, "default", split="test")
+
+
+    # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
+    # instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    
+    # instruction_following = "You should first think about the reasoning process in the mind and then provide me with the answer. And the answer should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$.' (without quotes) where ANSWER is just the final number or expression that solves the problem."
+
+    # add a row to each data item that represents a unique id
+    # def make_map_fn(split):
+    #     def process_fn(example, idx):
+    #         orig_extra_info = example.pop("extra_info")
+    #         extra_info = orig_extra_info.copy()
+    #         extra_info["need_tools_kwargs"] = False
+    #         example["extra_info"] = extra_info
+    #         return example
+
+    #     return process_fn
+    questions = []
+    def make_map_fn():
+        def process_fn(example, idx):
+            
+            # question_raw = example.pop("prompt")
+            question = example["problem"]
+            questions.append(question)
+
+            # question = question + " " + instruction_following
+            # solution = example["solution"]
+            # import re
+            # matches = re.findall(r'\\boxed\{([^}]*)\}', solution)
+            # solution = matches[-1] if matches else solution
+            
+            # data = {
+            #     # "data_source": example['data_source'],
+                
+            #     "data_source": 'grpo_aime2024',
+            #     "prompt": [
+            #         {
+            #             "role": "user",
+            #             "content": question,
+            #         }
+            #     ],
+            #     "ability": "math",
+            #     "reward_model": {"style": "rule", "ground_truth": solution},
+            # }
+            # return data
+
+        return process_fn
+
+    new_cols = ["data_source", "prompt", "ability", "reward_model"]
+    dataset = dataset.map(function=make_map_fn(), with_indices=True,remove_columns=[c for c in dataset.column_names if c not in new_cols])
+
+    # jsonl.dump(questions, os.path.join(local_dir, "test.jsonl"))
+    
+    with open(os.path.join(args.local_dir, "test.jsonl"), "w", encoding="utf-8") as f:
+        for rec in questions:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    
+    # local_dir = args.local_dir
+    # hdfs_dir = args.hdfs_dir
+
+    # dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
+
+    # if hdfs_dir is not None:
+    #     makedirs(hdfs_dir)
+    #     copy(src=local_dir, dst=hdfs_dir)

@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""
+make_3x3_collage.py
+
+Usage:
+    python make_3x3_collage.py out.png img1.png img2.png ... img9.png
+Or:
+    from this file import make_collage and call programmatically.
+
+默认行为：
+- 自动选择每个格子的目标大小为所有输入图片宽度/高度的最小值，避免大幅放大（可修改）。
+- 对每张图片使用 "cover" 策略：先等比缩放到能覆盖目标格子，再中心裁切，保证没有空白。
+- 如果任一输入图片包含透明通道，输出使用 RGBA，否则使用 RGB。
+"""
+import sys
+from typing import List, Optional, Tuple
+
+from PIL import Image
+
+
+def cover_resize_and_crop(im: Image.Image, target_size: Tuple[int,int]) -> Image.Image:
+    """等比缩放（cover）并中心裁切到 target_size（width, height）。"""
+    tw, th = target_size
+    iw, ih = im.size
+    if iw == tw and ih == th:
+        return im.copy()
+    # scale so that resized image fully covers target (可能会裁切)
+    scale = max(tw / iw, th / ih)
+    new_w = max(1, int(iw * scale + 0.5))
+    new_h = max(1, int(ih * scale + 0.5))
+    im_resized = im.resize((new_w, new_h), Image.LANCZOS)
+    left = (new_w - tw) // 2
+    top  = (new_h - th) // 2
+    return im_resized.crop((left, top, left + tw, top + th))
+
+def make_collage(image_paths: List[str], out_path: str,
+                 tile_size: Optional[Tuple[int,int]] = None) -> None:
+    """
+    将 9 张图片合成 3x3 九宫格并保存为 out_path。
+    - image_paths: 长度必须是 9 的列表（按从左到右、从上到下的顺序）。
+    - tile_size: (w,h)；如果为 None，自动取所有图片宽度/高度的最小值以避免放大。
+    """
+    if len(image_paths) != 9:
+        raise ValueError("需要正好 9 张图片（image_paths 列表长度为 9）")
+
+    imgs = [Image.open(p) for p in image_paths]
+
+    # 决定tile大小
+    if tile_size is None:
+        widths = [im.width for im in imgs]
+        heights = [im.height for im in imgs]
+        tile_w = min(widths)
+        tile_h = min(heights)
+    else:
+        tile_w, tile_h = tile_size
+
+    # 如果 tile 大小为 0 或 非正，报错
+    if tile_w <= 0 or tile_h <= 0:
+        raise ValueError("tile_size 必须为正整数")
+
+    # 判断是否需要透明通道（若任意图片有 alpha）
+    need_alpha = any(im.mode in ("RGBA", "LA") or ("transparency" in im.info) for im in imgs)
+    canvas_mode = "RGBA" if need_alpha else "RGB"
+
+    out_w = tile_w * 3
+    out_h = tile_h * 3
+    canvas = Image.new(canvas_mode, (out_w, out_h), (255,255,255,0) if need_alpha else (255,255,255))
+
+    # 处理并粘贴每张图片
+    for idx, im in enumerate(imgs):
+        im_conv = im.convert("RGBA") if need_alpha else im.convert("RGB")
+        tile = cover_resize_and_crop(im_conv, (tile_w, tile_h))
+        row = idx // 3
+        col = idx % 3
+        x = col * tile_w
+        y = row * tile_h
+        canvas.paste(tile, (x, y), tile if need_alpha else None)
+
+    # 保存
+    canvas.save(out_path)
+    print(f"Saved collage to {out_path} ({out_w}x{out_h})")
+
+folder_path = '/home/yichen/verl/checkpoints/qwen3-1.7b_grpo_1e-6_math4'
+imgs = ['rewards.png','len.png', 'grpo_aime2024.png', 'grpo_aime2025.png','grpo_amc23.png', 'grpo_gsm8k.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
+imgs = [f'{folder_path}/{img}' for img in imgs]
+out = f'{folder_path}/summary.png'
+make_collage(imgs, out)
