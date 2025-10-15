@@ -15,7 +15,7 @@ else:
 path = f'{folder_path}/train.log'
 
 
-datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025']
+datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025', 'early_stop']
 with open(path, 'r') as f:
     lines = f.readlines()
 for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac', 'actor/ppo_kl']:
@@ -36,13 +36,16 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
         elif content == 'actor/ppo_kl':
             pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/ppo_kl:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
             match = re.search(pattern, line)
+        elif 'early_stop' in content:
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?early_stop/ratio:([-+]?\d*\.\d+|\d+)'
+            match = re.search(pattern, line)
         else:
             pattern = rf'step:([-+]?\d*\.\d+|\d+).*?val-core/{content}/acc/mean@1:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
             match = re.search(pattern, line)
 
         if match:
             value = float(match.group(2))
-            assert match.group(1) not in matches, f"Duplicate step {match.group(1)} for {content}"
+            assert not (match.group(1) in matches and 'grpo_' in content), f"Duplicate step {match.group(1)} for {content}"
             matches[match.group(1)] = value
     if len(matches) == 0:
         continue
@@ -75,6 +78,9 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
     #     out_path = f"{folder_path}/len.png"
     if content == 'clip_ratio':
         out_path = f"{folder_path}/truncation_ratio.png"
+    elif content == 'early_stop':
+        out_path = f"{folder_path}/early_stop_ratio.png"
+        plt.xlim(0, 100)
     else:
         out_path = f"{folder_path}/{content.split('/')[-1]}.png"
     plt.tight_layout()
