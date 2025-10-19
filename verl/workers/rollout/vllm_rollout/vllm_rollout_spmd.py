@@ -387,7 +387,9 @@ class vLLMRollout(BaseRollout):
                         rollout_log_probs.append(curr_log_prob)
                     stop_reason = output.outputs[sample_id].stop_reason
                     # early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.stop_reason.startswith("<conf") else 0)
-                    early_exit.append(1 if stop_reason is not None else 0)
+                    # if stop_reason is not None:
+                    #     print(f"stop reason: {stop_reason}")
+                    early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.startswith("<conf") else 0)
 
             early_exit = torch.tensor(early_exit, dtype=torch.int8, device=idx.device)
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(

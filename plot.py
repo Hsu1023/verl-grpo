@@ -80,7 +80,7 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
         out_path = f"{folder_path}/truncation_ratio.png"
     elif content == 'early_stop':
         out_path = f"{folder_path}/early_stop_ratio.png"
-        plt.xlim(0, 100)
+        plt.xlim(0, 500)
     else:
         out_path = f"{folder_path}/{content.split('/')[-1]}.png"
     plt.tight_layout()
