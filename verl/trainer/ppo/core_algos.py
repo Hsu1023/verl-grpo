@@ -304,23 +304,26 @@ def compute_grpo_outcome_advantage(
     if early_exit is None:
         early_exit = torch.zeros_like(scores, dtype=torch.bool)
 
+    assert not (config.get("min_n", -1) >= 0 and config.get("early_exit_grad", True) is True), \
+        "Cannot use both min_n and early_exit_grad=True in GRPO advantage estimator."
+        
     with torch.no_grad():
         bsz = scores.shape[0]
         
         for i in range(bsz):
             if not early_exit[i].item():
                 id2score[index[i]].append(scores[i])
+        
+        if config.get("early_exit_grad", True) is False: # omit the samples with early_exit=True when computing mean and std
+            min_n = config.get("min_n", -1)
+            for i in range(bsz):
+                if min_n > 0 and len(id2score[index[i]]) < min_n:
+                    early_exit[i] = True
             
-        min_n = config.get("min_n", -1)
-        for i in range(bsz):
-            if min_n > 0 and len(id2score[index[i]]) < min_n:
-                early_exit[i] = True
-        
-        id2score = defaultdict(list)
-        
-        for i in range(bsz):
-            if not early_exit[i].item():
-                id2score[index[i]].append(scores[i])
+            id2score = defaultdict(list)
+            for i in range(bsz):
+                if not early_exit[i].item():
+                    id2score[index[i]].append(scores[i])
                 
         for idx in id2score:
             if len(id2score[idx]) == 1:
@@ -334,7 +337,7 @@ def compute_grpo_outcome_advantage(
                 raise ValueError(f"no score in prompt index: {idx}")
             
         for i in range(bsz):
-            if early_exit[i].item():
+            if early_exit[i].item() and config.get("early_exit_grad", True) is False:
                 scores[i] = 0.0
             elif norm_adv_by_std_in_grpo:
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
@@ -403,7 +406,7 @@ def compute_grpo_outcome_advantage_cutoff(
             
         min_n = config.get("min_n", -1)
         for i in range(bsz):
-            if min_n > 0 and len(id2score[index[i]]) < min_n:
+            if min_n > 0 and len(id2score[index[i]]) <= min_n:
                 early_exit[i] = True
         
         id2score = defaultdict(list)
