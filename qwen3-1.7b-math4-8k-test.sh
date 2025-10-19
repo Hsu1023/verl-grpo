@@ -1,50 +1,65 @@
+#!/bin/bash
+#SBATCH -A bfne-dtai-gh
+#SBATCH -p ghx4
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH --cpus-per-task=8
+#SBATCH --gpus-per-node=2
+#SBATCH --mem=250G
+#SBATCH --time=24:00:00
+#SBATCH -J qwen3-1.7b_grpo_1e-6_math4_8k_test
+#SBATCH -o outputs/%x.%j.out
+#SBATCH -e outputs/%x.%j.err
+
+set -euo pipefail
 set -x
+
 export RAY_BACKEND_LOG_LEVEL=FATAL
-export TMPDIR=$HOME/verl/tmp
+export BASE_PATH=$HOME/work/verl
+export TMPDIR=$BASE_PATH/tmp
 export HYDRA_FULL_ERROR=1
-save_path=$HOME/verl/output
-exp_name=qwen2.5-1.5b_grpo_1e-6_math4
-project='verl_grpo_example_gsm8k'
+unset ROCR_VISIBLE_DEVICES
+unset HIP_VISIBLE_DEVICES
+save_path=$BASE_PATH/output
+exp_name=qwen3-1.7b_grpo_1e-6_math4_8k_test
+project_name='verl_grpo_example_gsm8k'
 
-aime2024_path=$HOME/verl/data/aime2024/test.parquet
-aime2025_path=$HOME/verl/data/aime2025/test.parquet
-amc23_path=$HOME/verl/data/amc23/test.parquet
-dapo17k_path=$HOME/verl/data/amc23/test.parquet
-olympiadbench_path=$HOME/verl/data/olympiadbench/test.parquet
-omnimath_path=$HOME/verl/data/omnimath/test.parquet
-math500_path=$HOME/verl/data/math500/test.parquet
-minerva_path=$HOME/verl/data/minervamath/test.parquet
-gsm8k_path=$HOME/verl/data/gsm8k/test.parquet
+aime2024_path=$BASE_PATH/data/aime2024/test.parquet
+aime2025_path=$BASE_PATH/data/aime2025/test.parquet
+amc23_path=$BASE_PATH/data/amc23/test.parquet
+dapo17k_path=$BASE_PATH/data/amc23/test.parquet
+olympiadbench_path=$BASE_PATH/data/olympiadbench/test.parquet
+omnimath_path=$BASE_PATH/data/omnimath/test.parquet
+math500_path=$BASE_PATH/data/math500/test.parquet
+minerva_path=$BASE_PATH/data/minervamath/test.parquet
+gsm8k_path=$BASE_PATH/data/gsm8k/test.parquet
 
-# TRAIN_FILES=/home/yichen/verl/data/dapo17k/train.parquet
-TRAIN_FILES=/home/yichen/verl/data/mathlighteval/train_level4.parquet
-# TRAIN_FILES=/home/yichen/verl/data/gsm8k/train.parquet
+TRAIN_FILES=$BASE_PATH/data/mathlighteval/train_level4.parquet
 
-VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$gsm8k_path', '$olympiadbench_path', '$math500_path', '$minerva_path']"
-# VAL_FILES="['$math500_path']"
+VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$olympiadbench_path', '$math500_path', '$minerva_path']"
 
-mkdir -p $HOME/verl/checkpoints/$exp_name
+mkdir -p $BASE_PATH/checkpoints/$exp_name
 
-    # data.train_files=/home/yichen/verl/data/dapo17k/train.parquet \
-# 32 / 2
-CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
-    trainer.n_gpus_per_node=2 \
-    trainer.val_before_train=True \
+# conda activate verl
+
+python3 -m verl.trainer.main_ppo \
+    trainer.n_gpus_per_node=1 \
+    trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     "data.val_files=$VAL_FILES" \
     data.train_batch_size=16 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=2 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2  \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=2560 \
+    data.max_response_length=1024 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=1536 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/data/yichen/wyc/qwen2.5-1.5b-instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen3-1.7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_kl_loss=True \
@@ -55,7 +70,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
@@ -69,7 +84,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.test_freq=20 \
-    trainer.total_epochs=10 "$@" 2>&1 | tee -a $HOME/verl/checkpoints/$exp_name/train.log
+    trainer.total_epochs=5 "$@" 2>&1 | tee -a $BASE_PATH/checkpoints/$exp_name/train.log
     #  \
 
 # CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m verl.trainer.main_ppo \
@@ -116,4 +131,4 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
 #     trainer.max_actor_ckpt_to_keep=1 \
 #     trainer.max_critic_ckpt_to_keep=1 \
 #     trainer.test_freq=20 \
-#     trainer.total_epochs=3 "$@" 2>&1 | tee -a $HOME/verl/checkpoints/$exp_name/train.log
+#     trainer.total_epochs=3 "$@" 2>&1 | tee -a $BASE_PATH/checkpoints/$exp_name/train.log

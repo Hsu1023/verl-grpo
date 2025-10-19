@@ -18,19 +18,19 @@ from tqdm import tqdm
 MODEL_PATH = "/data/yichen/wyc/qwen2.5-1.5b-instruct"
 # MODEL_PATH = "/data/yichen/wyc/qwen2.5-math-1.5b"
 # MAX_TOKENS = 64000
-MAX_TOKENS = 32000
-# MAX_TOKENS = 4000
-RID = 1
-QID = 1
+# MAX_TOKENS = 32000
+MAX_TOKENS = 2000
+RID = 0
+QID = 0
 PORT = 8000
-DATASET_FILE = "/home/yichen/verl/data/mathlighteval/test_level4.jsonl"
+DATASET_FILE = "/home/yichen/verl/data/mathlighteval/train_level4.jsonl"
 
 # Online algorithm parameters
 WARMUP_TRACES = 16
 TOTAL_BUDGET = 32
-CONFIDENCE_PERCENTILE = 50
+CONFIDENCE_PERCENTILE = 10 # early stop ratio (10-16.70920; 90-18.121)
 # WINDOW_SIZE = 2048
-WINDOW_SIZE = 256
+WINDOW_SIZE = 512
 
 def math_equal(a, b):
     from verl.utils.reward_score.math_reward import is_equiv
@@ -225,7 +225,7 @@ def process_problem_voting(test_json, ground_truth):
     for i in range(len(test_json['final_traces'])):
         tokens += len(test_json['final_traces'][i]['tokens'])
         # Skip traces stopped by gconf
-        if test_json['final_traces'][i]['stop_reason'] is not None and 'gconf' in test_json['final_traces'][i]['stop_reason']:
+        if test_json['final_traces'][i]['stop_reason'] is not None and 'conf' in test_json['final_traces'][i]['stop_reason']:
             continue
         answer = extract_answer(test_json['final_traces'][i]['text'])
         minx = min(test_json['final_traces'][i]['group_confs'])
@@ -322,9 +322,9 @@ def main():
     print(f"Warmup avg tokens per trace: {warmup_stats['warmup_avg_tokens_per_trace']:.1f}")
 
     # Show some example results
-    print(f"\nFirst 3 warmup traces:")
-    for i, trace in enumerate(warmup_traces[:3]):
-        print(f"  Trace {i}: {trace['extracted_answer']} (correct: {trace['is_correct']}, conf: {trace['min_conf']:.4f}, tokens: {trace['token_count']})")
+    # print(f"\nFirst 3 warmup traces:")
+    # for i, trace in enumerate(warmup_traces[:3]):
+    #     print(f"  Trace {i}: {trace['extracted_answer']} (correct: {trace['is_correct']}, conf: {trace['min_conf']:.4f}, tokens: {trace['token_count']})")
 
     # ===========================
     # FINAL PHASE
@@ -370,6 +370,7 @@ def main():
     print(f"Final accuracy: {final_stats['final_accuracy']:.4f} ({final_stats['final_correct']}/{final_stats['final_traces']})")
     print(f"Final total tokens: {final_stats['final_total_tokens']}")
     print(f"Final avg tokens per trace: {final_stats['final_avg_tokens_per_trace']:.1f}")
+    print(f"Final stop reasons: {Counter(t['stop_reason'] for t in final_traces)}")
 
     # Show some example results
     print(f"\nFirst 3 final traces:")

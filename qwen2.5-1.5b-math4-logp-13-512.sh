@@ -3,7 +3,7 @@ export RAY_BACKEND_LOG_LEVEL=FATAL
 export TMPDIR=$HOME/verl/tmp
 export HYDRA_FULL_ERROR=1
 save_path=$HOME/verl/output
-exp_name=qwen2.5-1.5b_grpo_1e-6_math4
+exp_name=qwen2.5-1.5b_grpo_1e-6_math4_logp_13_512
 project='verl_grpo_example_gsm8k'
 
 aime2024_path=$HOME/verl/data/aime2024/test.parquet
@@ -22,12 +22,14 @@ TRAIN_FILES=/home/yichen/verl/data/mathlighteval/train_level4.parquet
 
 VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$gsm8k_path', '$olympiadbench_path', '$math500_path', '$minerva_path']"
 # VAL_FILES="['$math500_path']"
+logp_threshold=13
+logp_kwargs="{override_config:{top_k: 0, logprobs:20, prompt_logprobs:20},logp_config: {enable_conf: true,window_size: 512,threshold: $logp_threshold}}"
 
 mkdir -p $HOME/verl/checkpoints/$exp_name
 
-    # data.train_files=/home/yichen/verl/data/dapo17k/train.parquet \
 # 32 / 2
-CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
+
+CUDA_VISIBLE_DEVICES=4,5 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=2 \
     trainer.val_before_train=True \
     algorithm.adv_estimator=grpo \
@@ -39,6 +41,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    "+actor_rollout_ref.rollout.engine_kwargs.vllm.pruning_kwargs=$logp_kwargs" \
     data.max_prompt_length=512 \
     data.max_response_length=2048 \
     actor_rollout_ref.rollout.max_num_batched_tokens=2560 \

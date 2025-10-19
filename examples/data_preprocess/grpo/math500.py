@@ -24,10 +24,12 @@ from verl.utils.reward_score.math_reward import last_boxed_only_string, remove_b
 
 def extract_solution(solution_str):
     return remove_boxed(last_boxed_only_string(solution_str))
-
+import os
+CURRENT_PATH = os.path.join(os.path.dirname(__file__), '../../..')
+print(CURRENT_PATH)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="/home/yichen/verl/data/math500")
+    parser.add_argument("--local_dir", default=f"{CURRENT_PATH}/data/math500")
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()

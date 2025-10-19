@@ -165,6 +165,12 @@ class vLLMRollout(BaseRollout):
 
         # copy it to avoid secretly modifying the engine config
         engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
+        pruning_kwargs = engine_kwargs.pop("pruning_kwargs", None)
+        import json
+
+        # pruning_kwargs = json.loads(pruning_kwargs) if pruning_kwargs is not None else None
+        
+        self.pruning_kwargs = pruning_kwargs
 
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
@@ -215,6 +221,7 @@ class vLLMRollout(BaseRollout):
             logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
             repetition_penalty=config.get("repetition_penalty", 1.0),
+            # extra_args=pruning_kwargs,
         )
 
         kwargs["detokenize"] = False
@@ -224,7 +231,7 @@ class vLLMRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)) and k != "seed":
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
-        print(f"kwargs: {kwargs}")
+        # print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
@@ -310,6 +317,7 @@ class vLLMRollout(BaseRollout):
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         ## TODO
+        kwargs = {}
         if not do_sample:
             kwargs = {
                 "best_of": 1,
@@ -327,6 +335,19 @@ class vLLMRollout(BaseRollout):
                 "temperature": self.config.val_kwargs.temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
+            
+        if not is_validate and self.pruning_kwargs: # training
+            logp_config = self.pruning_kwargs.get("logp_config", None)
+            override_config = self.pruning_kwargs.get("override_config", None)
+            # print('over', override_config)
+            if override_config is not None:
+                kwargs.update(override_config)
+            # print(f"override sampling params: {override_config}")
+            kwargs.update({
+                "extra_args": logp_config
+            })
+            # print('after over', kwargs)
+            # print(f"pruning kwargs: {self.pruning_kwargs}")
 
         lora_requests = None
         if self.lora_kwargs:
@@ -345,12 +366,16 @@ class vLLMRollout(BaseRollout):
                 lora_request=lora_requests,
                 use_tqdm=False,
             )
+            
+            # print(outputs)
 
             # TODO(sgm): disable logprob when recompute_log_prob is enable
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
             response = []
             rollout_log_probs = []
+            # stop_reasons = []
+            early_exit = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
@@ -360,7 +385,13 @@ class vLLMRollout(BaseRollout):
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
+                    stop_reason = output.outputs[sample_id].stop_reason
+                    # early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.stop_reason.startswith("<conf") else 0)
+                    # if stop_reason is not None:
+                    #     print(f"stop reason: {stop_reason}")
+                    early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.startswith("<conf") else 0)
 
+            early_exit = torch.tensor(early_exit, dtype=torch.int8, device=idx.device)
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
             )
@@ -397,12 +428,15 @@ class vLLMRollout(BaseRollout):
                 "input_ids": seq,  # here input_ids become the whole sentences
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
+                "early_exit": early_exit,
             },
             batch_size=batch_size,
         )
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
+        # non_tensor_batch["stop_reasons"] = stop_reasons
+        # non_tensor_batch['stop_reasons'] = [output.stop_reason for output in outputs for _ in range(len(output.outputs))]
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 

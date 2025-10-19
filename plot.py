@@ -15,7 +15,7 @@ else:
 path = f'{folder_path}/train.log'
 
 
-datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025']
+datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025', 'early_stop']
 with open(path, 'r') as f:
     lines = f.readlines()
 for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac', 'actor/ppo_kl']:
@@ -36,13 +36,16 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
         elif content == 'actor/ppo_kl':
             pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/ppo_kl:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
             match = re.search(pattern, line)
+        elif 'early_stop' in content:
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?early_stop/ratio:([-+]?\d*\.\d+|\d+)'
+            match = re.search(pattern, line)
         else:
             pattern = rf'step:([-+]?\d*\.\d+|\d+).*?val-core/{content}/acc/mean@1:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
             match = re.search(pattern, line)
 
         if match:
             value = float(match.group(2))
-            assert match.group(1) not in matches, f"Duplicate step {match.group(1)} for {content}"
+            assert not (match.group(1) in matches and 'grpo_' in content), f"Duplicate step {match.group(1)} for {content}"
             matches[match.group(1)] = value
     if len(matches) == 0:
         continue
@@ -75,6 +78,9 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
     #     out_path = f"{folder_path}/len.png"
     if content == 'clip_ratio':
         out_path = f"{folder_path}/truncation_ratio.png"
+    elif content == 'early_stop':
+        out_path = f"{folder_path}/early_stop_ratio.png"
+        plt.xlim(0, 500)
     else:
         out_path = f"{folder_path}/{content.split('/')[-1]}.png"
     plt.tight_layout()
@@ -151,7 +157,8 @@ def make_collage(image_paths: List[str], out_path: str,
     print(f"Saved collage to {out_path} ({out_w}x{out_h})")
 
 # folder_path = '/home/yichen/verl/checkpoints/qwen3-1.7b_grpo_1e-6_math4'
-imgs = ['rewards.png','len.png', 'grpo_aime2024.png', 'grpo_aime2025.png','grpo_amc23.png', 'grpo_gsm8k.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
+# imgs = ['rewards.png','len.png', 'grpo_aime2024.png', 'grpo_aime2025.png','grpo_amc23.png', 'grpo_gsm8k.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
+imgs = ['rewards.png','len.png', 'early_stop_ratio.png', 'grpo_aime2024.png', 'grpo_aime2025.png','grpo_amc23.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
 imgs = [f'{folder_path}/{img}' for img in imgs]
 out = f'{folder_path}/summary.png'
 make_collage(imgs, out)

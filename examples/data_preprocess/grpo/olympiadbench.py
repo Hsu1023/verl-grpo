@@ -23,10 +23,12 @@ import os
 import datasets
 
 from verl.utils.hdfs_io import copy, makedirs
-
+import os
+CURRENT_PATH = os.path.join(os.path.dirname(__file__), '../../..')
+print(CURRENT_PATH)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="/home/yichen/verl/data/olympiadbench")
+    parser.add_argument("--local_dir", default=f"{CURRENT_PATH}/data/olympiadbench")
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()

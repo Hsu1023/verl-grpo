@@ -30,14 +30,16 @@ from verl.utils.reward_score.math_reward import (last_boxed_only_string,
 def extract_solution(solution_str):
     return remove_boxed(last_boxed_only_string(solution_str))
 
-
+import os
+CURRENT_PATH = os.path.join(os.path.dirname(__file__), '../../..')
+print(CURRENT_PATH)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="/home/yichen/verl/data/mathlighteval", help="The save directory for the preprocessed dataset.")
+    parser.add_argument("--local_dir", default=f"{CURRENT_PATH}/data/mathlighteval", help="The save directory for the preprocessed dataset.")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
     parser.add_argument(
-        "--local_save_dir", default="/home/yichen/verl/data/mathlighteval", help="The save directory for the preprocessed dataset."
+        "--local_save_dir", default=f"{CURRENT_PATH}/data/mathlighteval", help="The save directory for the preprocessed dataset."
     )
     parser.add_argument(
         "--aimed_level_list", default="4", help="The levels to include in the filtered dataset, separated by commas."
@@ -100,23 +102,23 @@ if __name__ == "__main__":
             return False
         level = int(match.group(1))
         statistic[level-1] += 1
+        # print(level)
         # print(statistic)
         return level in args.aimed_level_list
 
     # 先把不需要的样本删掉
     train_dataset = train_dataset.filter(keep_fn, with_indices=True)
-    # print("Data statistic (level 1 to 5å): ", statistic)
     for i in range(1,5):
         statistic[i] += statistic[i-1]
     print("Data statistic (level 1 to 5): ", statistic)
-    test_dataset = test_dataset.filter(keep_fn, with_indices=True)
+    # test_dataset = test_dataset.filter(keep_fn, with_indices=True)
     
 
     new_cols = ["data_source", "prompt", "ability", "reward_model"]
-    # train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True,remove_columns=[c for c in train_dataset.column_names if c not in new_cols])
+    train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True,remove_columns=[c for c in train_dataset.column_names if c not in new_cols])
     
     
-    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True,remove_columns=[c for c in test_dataset.column_names if c not in new_cols])
+    # test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True,remove_columns=[c for c in test_dataset.column_names if c not in new_cols])
 
     hdfs_dir = args.hdfs_dir
     local_save_dir = args.local_dir
@@ -125,13 +127,13 @@ if __name__ == "__main__":
     else:
         local_save_dir = args.local_save_dir
 
-    # print(f"Number of training samples after filtering: {len(train_dataset)}")
-    print(f"Number of testing samples after filtering: {len(test_dataset)}")
+    print(f"Number of training samples after filtering: {len(questions)}")
+    # print(f"Number of testing samples after filtering: {len(test_dataset)}")
     # train_dataset.to_parquet(os.path.join(local_save_dir, f"train_level{level_str}.parquet"))
     # test_dataset.to_parquet(os.path.join(local_save_dir, f"test_level{level_str}.parquet"))
 
 
-    with open(os.path.join(args.local_dir, "test_level4.jsonl"), "w", encoding="utf-8") as f:
+    with open(os.path.join(args.local_dir, "train_level4.jsonl"), "w", encoding="utf-8") as f:
         for rec in questions:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             

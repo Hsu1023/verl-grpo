@@ -49,6 +49,7 @@ class LogprobsProcessor:
         num_logprobs = request.sampling_params.logprobs
         num_prompt_logprobs = request.sampling_params.prompt_logprobs
         
+        # print('sampling_params', request.sampling_params)
         if hasattr(request.sampling_params, "extra_args") \
         and request.sampling_params.extra_args is not None \
         and request.sampling_params.extra_args.get("enable_conf", False):
@@ -63,6 +64,8 @@ class LogprobsProcessor:
             conf_grouped    = 0.0
             conf_group_list = None
             conf_list       = None
+            
+        # import ipdb; ipdb.set_trace()
     
         return cls(
             tokenizer=tokenizer,
@@ -83,11 +86,18 @@ class LogprobsProcessor:
     ##
     def check_conf_stop(self) -> bool:
         """Return True if the confidence window triggers early stopping."""
+        
+        # import ipdb; ipdb.set_trace()
         if self.conf_group_list is None or len(self.conf_group_list) == 0:
             return False
+
+        print('stop')
         # Require a full window; trigger when the moving average is below threshold.
-        return (len(self.conf_group_list) >= self.conf_group_size
+        ret = (len(self.conf_group_list) >= self.conf_group_size
                 and self.conf_grouped / len(self.conf_group_list) < self.conf_threshold)
+        # if ret:
+        #     print(f"Early stopping triggered: conf {self.conf_grouped} / {len(self.conf_group_list):.4f} < threshold {self.conf_threshold} (window size {len(self.conf_group_list)} / {self.conf_group_size})")
+        return ret
 
     def _update_sample_logprobs(self, logprobs_lists: LogprobsLists) -> None:
         """Update with sample logprobs from EngineCore.

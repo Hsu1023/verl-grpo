@@ -30,14 +30,16 @@ from verl.utils.reward_score.math_reward import last_boxed_only_string, remove_b
 def extract_solution(solution_str):
     return remove_boxed(last_boxed_only_string(solution_str))
 
-
+import os
+CURRENT_PATH = os.path.join(os.path.dirname(__file__), '../../..')
+print(CURRENT_PATH)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="/home/yichen/verl/data/mathlighteval", help="The save directory for the preprocessed dataset.")
+    parser.add_argument("--local_dir", default=f"{CURRENT_PATH}/data/mathlighteval", help="The save directory for the preprocessed dataset.")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
     parser.add_argument(
-        "--local_save_dir", default="/home/yichen/verl/data/mathlighteval", help="The save directory for the preprocessed dataset."
+        "--local_save_dir", default=f"{CURRENT_PATH}/data/mathlighteval", help="The save directory for the preprocessed dataset."
     )
     parser.add_argument(
         "--aimed_level_list", default="5", help="The levels to include in the filtered dataset, separated by commas."

@@ -30,6 +30,7 @@ def compute_score(solution_str, ground_truth) -> float:
             answer = solution_str
     except Exception as e:
         print(e)
+        raise e
     
 
     # return retval
@@ -66,8 +67,11 @@ def remove_boxed(s):
 
     left = "\\boxed{"
 
-    assert s[: len(left)] == left
-    assert s[-1] == "}"
+    try:
+        assert s[: len(left)] == left, f"{(s, len(left))}"
+        assert s[-1] == "}"
+    except Exception as e:
+        return ''
 
     return s[len(left) : -1]
 

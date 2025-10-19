@@ -259,9 +259,6 @@ def compute_gae_advantage_return(
         advantages = verl_F.masked_whiten(advantages, response_mask)
     return advantages, returns
 
-
-# NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
-@register_adv_est(AdvantageEstimator.GRPO)  # or simply: @register_adv_est("grpo")
 def compute_grpo_outcome_advantage(
     token_level_rewards: torch.Tensor,
     response_mask: torch.Tensor,
@@ -269,6 +266,7 @@ def compute_grpo_outcome_advantage(
     epsilon: float = 1e-6,
     norm_adv_by_std_in_grpo: bool = True,
     config: Optional[AlgoConfig] = None,
+    early_exit: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Compute advantage for GRPO, operating only on Outcome reward
@@ -303,11 +301,27 @@ def compute_grpo_outcome_advantage(
     id2score = defaultdict(list)
     id2mean = {}
     id2std = {}
+    if early_exit is None:
+        early_exit = torch.zeros_like(scores, dtype=torch.bool)
 
     with torch.no_grad():
         bsz = scores.shape[0]
+        
         for i in range(bsz):
-            id2score[index[i]].append(scores[i])
+            if not early_exit[i].item():
+                id2score[index[i]].append(scores[i])
+            
+        min_n = config.get("min_n", -1)
+        for i in range(bsz):
+            if min_n > 0 and len(id2score[index[i]]) < min_n:
+                early_exit[i] = True
+        
+        id2score = defaultdict(list)
+        
+        for i in range(bsz):
+            if not early_exit[i].item():
+                id2score[index[i]].append(scores[i])
+                
         for idx in id2score:
             if len(id2score[idx]) == 1:
                 id2mean[idx] = torch.tensor(0.0)
@@ -318,14 +332,140 @@ def compute_grpo_outcome_advantage(
                 id2std[idx] = torch.std(scores_tensor)
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
+            
         for i in range(bsz):
-            if norm_adv_by_std_in_grpo:
+            if early_exit[i].item():
+                scores[i] = 0.0
+            elif norm_adv_by_std_in_grpo:
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
             else:
                 scores[i] = scores[i] - id2mean[index[i]]
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+# NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
+@register_adv_est(AdvantageEstimator.GRPO)  # or simply: @register_adv_est("grpo")
+def compute_grpo_outcome_advantage_cutoff(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+    early_exit: Optional[torch.Tensor] = None,
+    data: Optional[Any] = None,
+    dp_size: Optional[int] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for GRPO, operating only on Outcome reward
+    (with only one scalar reward for each response).
+
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape is (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape is (bs, response_length)
+        index: `(np.ndarray)`
+            index array for grouping
+        epsilon: `(float)`
+            small value to avoid division by zero
+        norm_adv_by_std_in_grpo: `(bool)`
+            whether to scale the GRPO advantage
+        config: `(Optional[AlgoConfig])`
+            algorithm configuration object
+
+    Note:
+        If norm_adv_by_std_in_grpo is True, the advantage is scaled by the std, as in the original GRPO.
+        If False, the advantage is not scaled, as in Dr.GRPO (https://arxiv.org/abs/2503.20783).
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape is (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape is (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2mean = {}
+    id2std = {}
+    early_exit = data.batch["early_exit"]
+    if early_exit is None:
+        early_exit = torch.zeros_like(scores, dtype=torch.bool)
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        
+        for i in range(bsz):
+            if not early_exit[i].item():
+                id2score[index[i]].append(scores[i])
+            
+        min_n = config.get("min_n", -1)
+        for i in range(bsz):
+            if min_n > 0 and len(id2score[index[i]]) < min_n:
+                early_exit[i] = True
+        
+        id2score = defaultdict(list)
+        
+        for i in range(bsz):
+            if not early_exit[i].item():
+                id2score[index[i]].append(scores[i])
+                
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2mean[idx] = torch.tensor(0.0)
+                id2std[idx] = torch.tensor(1.0)
+            elif len(id2score[idx]) > 1:
+                scores_tensor = torch.stack(id2score[idx])
+                id2mean[idx] = torch.mean(scores_tensor)
+                id2std[idx] = torch.std(scores_tensor)
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+            
+        for i in range(bsz):
+            if early_exit[i].item():
+                scores[i] = 0.0
+            elif norm_adv_by_std_in_grpo:
+                scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            else:
+                scores[i] = scores[i] - id2mean[index[i]]
+        scores = scores.unsqueeze(-1) * response_mask
+    
+    data.batch["advantages"] = scores
+    data.batch["returns"] = scores
+    
+    
+    early_exit = early_exit.unsqueeze(-1).to(torch.bool).squeeze(-1)
+    early_exit = ~early_exit
+    # import random
+    # n = 30 + (random.randint(0, 2) * 2)
+    # early_exit = torch.concat([torch.zeros(n), torch.ones(128-n)], dim=0).reshape(-1).to(torch.bool)
+    
+    
+    
+    # dp_size=2, please make sure early_exit is correct; otherwise, random add samples to early_exit to make sure that it can be divided by dp_size
+    if early_exit.sum().item() % 2 != 0:
+        diff = 2 - (early_exit.sum().item() % 2)
+        for i in range(len(early_exit)):
+            if not early_exit[i]:
+                early_exit[i] = True
+                diff -= 1
+            if diff == 0:
+                break
+    
+    
+    data.batch = data.batch[early_exit]
+    for key in data.non_tensor_batch:
+        if isinstance(data.non_tensor_batch[key], np.ndarray):
+            data.non_tensor_batch[key] = data.non_tensor_batch[key][early_exit]
+        elif isinstance(data.non_tensor_batch[key], list):
+            data.non_tensor_batch[key] = [item for idx, item in enumerate(data.non_tensor_batch[key]) if early_exit[idx]]
+        else:
+            raise ValueError(f"Unsupported type in non_tensor_batch: {type(data.non_tensor_batch[key])}")
+            
+    return data
+    # return scores, scores
 
 
 @register_adv_est(AdvantageEstimator.GRPO_VECTORIZED)

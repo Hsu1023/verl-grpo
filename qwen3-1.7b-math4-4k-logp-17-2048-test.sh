@@ -3,7 +3,7 @@ export RAY_BACKEND_LOG_LEVEL=FATAL
 export TMPDIR=$HOME/verl/tmp
 export HYDRA_FULL_ERROR=1
 save_path=$HOME/verl/output
-exp_name=qwen2.5-1.5b_grpo_1e-6_math4
+exp_name=qwen3-1.7b_grpo_1e-6_math4_4k_logp_17_2048_test
 project='verl_grpo_example_gsm8k'
 
 aime2024_path=$HOME/verl/data/aime2024/test.parquet
@@ -17,34 +17,42 @@ minerva_path=$HOME/verl/data/minervamath/test.parquet
 gsm8k_path=$HOME/verl/data/gsm8k/test.parquet
 
 # TRAIN_FILES=/home/yichen/verl/data/dapo17k/train.parquet
+# TRAIN_FILES=/home/yichen/verl/data/mathlighteval/train.parquet
 TRAIN_FILES=/home/yichen/verl/data/mathlighteval/train_level4.parquet
-# TRAIN_FILES=/home/yichen/verl/data/gsm8k/train.parquet
 
 VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$gsm8k_path', '$olympiadbench_path', '$math500_path', '$minerva_path']"
 # VAL_FILES="['$math500_path']"
 
 mkdir -p $HOME/verl/checkpoints/$exp_name
 
+logp_threshold=22
+logp_kwargs="{override_config:{top_k: 0, logprobs:20, prompt_logprobs:20},logp_config: {enable_conf: true,window_size: 2048,threshold: $logp_threshold}}"
+
     # data.train_files=/home/yichen/verl/data/dapo17k/train.parquet \
+
+    # "+actor_rollout_ref.rollout.engine_kwargs.vllm.pruning_kwargs=$logp_kwargs" \
 # 32 / 2
-CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
+CUDA_VISIBLE_DEVICES=1,2 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=2 \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     "data.val_files=$VAL_FILES" \
+    "+actor_rollout_ref.rollout.engine_kwargs.vllm.pruning_kwargs=$logp_kwargs" \
+    "+algorithm.early_exit_grad=True" \
+    "+algorithm.min_n=4" \
     data.train_batch_size=16 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=2560 \
+    data.max_response_length=4096 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=4608 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/data/yichen/wyc/qwen2.5-1.5b-instruct \
+    actor_rollout_ref.model.path=/data/public_models/qwen3-1.7b-instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_kl_loss=True \
@@ -55,7 +63,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.65 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
@@ -69,7 +77,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.test_freq=20 \
-    trainer.total_epochs=10 "$@" 2>&1 | tee -a $HOME/verl/checkpoints/$exp_name/train.log
+    trainer.total_epochs=5 "$@" 2>&1 | tee -a $HOME/verl/checkpoints/$exp_name/train.log
     #  \
 
 # CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m verl.trainer.main_ppo \

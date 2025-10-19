@@ -77,6 +77,33 @@ def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     )
 
 
+###
+def compute_stop_metrics(batch: DataProto) -> dict[str, Any]:
+    """
+    Computes stop reason metrics from a batch of data.
+
+    This function analyzes the stop reasons for each response in the batch and computes
+    the frequency of each stop reason.
+
+    Args:
+        batch: A DataProto object containing batch data with non-tensor information about stop reasons.
+
+    Returns:
+        A dictionary mapping each unique stop reason to its frequency in the batch.
+
+    Example:
+        >>> batch.non_tensor_batch["stop_reasons"] = ["<eos>", "<max_length>", "<eos>"]
+        >>> compute_stop_metrics(batch)
+        {"<eos>": 2, "<max_length>": 1}
+    """
+    # print(batch)
+    stop_reasons = batch.batch.get("early_exit", None)
+    # print(stop_reasons)
+    if stop_reasons is None:
+        return {}
+
+    return {"early_stop/ratio": stop_reasons.float().mean().item()}
+
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str, Any]:
     """
     Computes various metrics from a batch of data for PPO training.
