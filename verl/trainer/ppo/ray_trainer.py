@@ -254,7 +254,7 @@ def compute_advantage(
                 index=data.non_tensor_batch["uid"],
                 norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                 config=config,
-                early_exit=config.get("early_exit_grad", False) and data.batch.get("early_exit", None),
+                early_exit=data.batch.get("early_exit", None),
             )
             data.batch["advantages"] = advantages
             data.batch["returns"] = returns

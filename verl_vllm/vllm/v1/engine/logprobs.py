@@ -91,7 +91,7 @@ class LogprobsProcessor:
         if self.conf_group_list is None or len(self.conf_group_list) == 0:
             return False
 
-        print('stop')
+        # print('stop')
         # Require a full window; trigger when the moving average is below threshold.
         ret = (len(self.conf_group_list) >= self.conf_group_size
                 and self.conf_grouped / len(self.conf_group_list) < self.conf_threshold)
