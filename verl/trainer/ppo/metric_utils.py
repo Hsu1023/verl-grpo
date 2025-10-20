@@ -76,7 +76,53 @@ def _compute_response_info(batch: DataProto) -> dict[str, Any]:
         response_length=response_length,
     )
 
+def compute_logp_metrics(batch: DataProto, percentile: float=25) -> dict[str, Any]:
+    """
+    Computes log probability metrics from a batch of data.
 
+    This function calculates statistical metrics (mean, max, min, percentile)
+    for the log probabilities of generated tokens in the batch.
+
+    Args:
+        batch: A DataProto object containing batch data with token-level log probabilities.
+        percentile: The percentile value to compute (e.g., 90 for the 90th percentile).
+
+    Returns:
+        A dictionary containing:
+            - logp/mean: Mean log probability of generated tokens
+            - logp/max: Maximum log probability of generated tokens
+            - logp/min: Minimum log probability of generated tokens
+            - logp/percentile_{percentile}: The specified percentile of log probabilities
+
+    Example:
+        >>> batch.batch["token_level_logps"] = torch.tensor([[ -0.5, -1.0], [-0.2, -0.8]])
+        >>> compute_logp_metrics(batch, percentile=90)
+        {
+            "logp/mean": 0.625,
+            "logp/max": 1.0,
+            "logp/min": 0.2,
+            "logp/percentile_90": 0.9
+        }
+    """
+    if "logp_topk" not in batch.batch:
+        return {}
+    valid_logps = batch.batch["logp_topk"]
+
+    logp_mean = torch.mean(valid_logps).detach().item()
+    logp_max = torch.max(valid_logps).detach().item()
+    logp_min = torch.min(valid_logps).detach().item()
+    k_percentile = int(percentile / 100.0 * valid_logps.numel())
+    logp_percentile = torch.kthvalue(
+        valid_logps.view(-1).sort().values, k_percentile
+    ).values.detach().item()
+
+    return {
+        "logp/mean": logp_mean,
+        "logp/max": logp_max,
+        "logp/min": logp_min,
+        f"logp/percentile": logp_percentile,
+    }
+    
 ###
 def compute_stop_metrics(batch: DataProto) -> dict[str, Any]:
     """

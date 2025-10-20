@@ -30,7 +30,7 @@ logp_kwargs="{override_config:{top_k: 0, logprobs:20, prompt_logprobs:20},logp_c
 
     # data.train_files=/home/yichen/verl/data/dapo17k/train.parquet \
 # 32 / 2
-CUDA_VISIBLE_DEVICES=0,1 python3 -m verl.trainer.main_ppo \
+CUDA_VISIBLE_DEVICES=2,3 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=2 \
     trainer.val_before_train=True \
     algorithm.adv_estimator=grpo \

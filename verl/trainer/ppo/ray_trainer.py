@@ -45,6 +45,7 @@ from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (compute_data_metrics,
+                                           compute_logp_metrics,
                                            compute_stop_metrics,
                                            compute_throughout_metrics,
                                            compute_timing_metrics,
@@ -995,6 +996,7 @@ class RayPPOTrainer:
             else False
         )
         next_step_profile = False
+        self.current_conf = None
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1019,7 +1021,7 @@ class RayPPOTrainer:
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-
+                gen_batch.meta_info['current_conf'] = self.current_conf
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -1027,8 +1029,9 @@ class RayPPOTrainer:
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
+                            assert NotImplementedError
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-
+                        # print(f"logp_topk: {gen_batch_output.batch.get('logp_topk', None)}")
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
@@ -1083,6 +1086,7 @@ class RayPPOTrainer:
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        # assert 0, f'{old_log_prob.batch["old_log_probs"]}, {batch.batch["attention_mask"]}'
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = batch.batch["response_mask"]
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
@@ -1114,7 +1118,8 @@ class RayPPOTrainer:
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
                             
-                    
+                    metrics.update(compute_logp_metrics(batch=batch))
+                    self.current_conf = metrics.get("logp/percentile", None)
                     metrics.update(compute_stop_metrics(batch=batch)) ## conf
 
                     with marked_timer("adv", timing_raw, color="brown"):

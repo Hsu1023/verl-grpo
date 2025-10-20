@@ -335,7 +335,8 @@ class vLLMRollout(BaseRollout):
                 "temperature": self.config.val_kwargs.temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
-            
+        
+        logp_config = {}
         if not is_validate and self.pruning_kwargs: # training
             logp_config = self.pruning_kwargs.get("logp_config", None)
             override_config = self.pruning_kwargs.get("override_config", None)
@@ -346,8 +347,13 @@ class vLLMRollout(BaseRollout):
             kwargs.update({
                 "extra_args": logp_config
             })
-            # print('after over', kwargs)
-            # print(f"pruning kwargs: {self.pruning_kwargs}")
+            
+        if prompts.meta_info.get('current_conf', None) is not None and logp_config.get('dynamic_threshold', False):
+            kwargs["extra_args"].update({
+                    "threshold": prompts.meta_info['current_conf']
+                }
+            )
+            print(f"updated_conf: {prompts.meta_info['current_conf']}")
 
         lora_requests = None
         if self.lora_kwargs:
@@ -376,8 +382,28 @@ class vLLMRollout(BaseRollout):
             rollout_log_probs = []
             # stop_reasons = []
             early_exit = []
+            logp_topks = []
+            if isinstance(getattr(self.sampling_params, 'extra_args', None), dict) and 'window_size' in self.sampling_params.extra_args: 
+                window_size = self.sampling_params.extra_args['window_size']
+            else:
+                window_size = None
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
+                    # print(output.outputs[sample_id])
+                    # print(output.outputs[sample_id].logprobs)
+                    if window_size is not None:
+                        logp_topk = [[_.logprob for _ in d.values()] for d in output.outputs[sample_id].logprobs]
+                        logp_topk = [(-sum(l) / len(l)) if len(l) > 0 else 0.0 for l in logp_topk]
+                        from itertools import accumulate
+                        if len(logp_topk) <= window_size:
+                            logp_topk = sum(logp_topk) / len(logp_topk)
+                        else:
+                            logp_topk = list(accumulate(logp_topk, lambda x, y: x + y))
+                            logp_topk = min([(logp_topk[i] - logp_topk[i - window_size]) / window_size for i in range(window_size, len(logp_topk))])
+                        logp_topks.append(logp_topk)
+                        
+                    # mean_ = [-list(d.values())[0].logprob for d in output.outputs[sample_id].logprobs]
+                    # print(f"mean logprob: {sum(mean_)/len(mean_)}")
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
                     if self.config.calculate_log_probs:
@@ -391,6 +417,8 @@ class vLLMRollout(BaseRollout):
                     #     print(f"stop reason: {stop_reason}")
                     early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.startswith("<conf") else 0)
 
+            if len(logp_topks) > 0:
+                logp_topks = np.array(logp_topks, dtype=np.float32)
             early_exit = torch.tensor(early_exit, dtype=torch.int8, device=idx.device)
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
@@ -420,6 +448,8 @@ class vLLMRollout(BaseRollout):
         )
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
+        # print
+        # assert 0, logp_topks
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
             {
@@ -429,6 +459,7 @@ class vLLMRollout(BaseRollout):
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
                 "early_exit": early_exit,
+                "logp_topk": logp_topks if len(logp_topks) > 0 else None,
             },
             batch_size=batch_size,
         )

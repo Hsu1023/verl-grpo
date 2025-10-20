@@ -15,7 +15,7 @@ from tqdm import tqdm
 # ===========================
 # MODEL_PATH = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
 # MODEL_PATH = "/data/yichen/wyc/qwen3-1.7b-instruct"
-MODEL_PATH = "/data/yichen/wyc/qwen2.5-1.5b-instruct"
+MODEL_PATH = "/data/public_models/qwen2.5-1.5b-instruct"
 # MODEL_PATH = "/data/yichen/wyc/qwen2.5-math-1.5b"
 # MAX_TOKENS = 64000
 # MAX_TOKENS = 32000
@@ -104,6 +104,7 @@ def compute_least_grouped(confs, group_size=WINDOW_SIZE):
         return [sum(confs) / len(confs)] if confs else [0]
 
     sliding_means = []
+    print(confs)
     for i in range(len(confs) - group_size + 1):
         window = confs[i:i + group_size]
         sliding_means.append(round(sum(window) / len(window), 3))

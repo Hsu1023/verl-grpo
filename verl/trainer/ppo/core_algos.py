@@ -303,10 +303,13 @@ def compute_grpo_outcome_advantage(
     id2std = {}
     if early_exit is None:
         early_exit = torch.zeros_like(scores, dtype=torch.bool)
+    else:
+        early_exit = early_exit.clone().detach().to(torch.bool).squeeze(-1)
+        
 
     assert not (config.get("min_n", -1) >= 0 and config.get("early_exit_grad", True) is True), \
         "Cannot use both min_n and early_exit_grad=True in GRPO advantage estimator."
-        
+    # import ipdb; ipdb.set_trace()
     with torch.no_grad():
         bsz = scores.shape[0]
         
@@ -344,7 +347,6 @@ def compute_grpo_outcome_advantage(
             else:
                 scores[i] = scores[i] - id2mean[index[i]]
         scores = scores.unsqueeze(-1) * response_mask
-
     return scores, scores
 
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.

@@ -26,21 +26,21 @@ VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$gsm8k_path', '$
 mkdir -p $HOME/verl/checkpoints/$exp_name
 
 logp_threshold=22
-logp_kwargs="{override_config:{top_k: 0, logprobs:20, prompt_logprobs:20},logp_config: {enable_conf: true,window_size: 2048,threshold: $logp_threshold}}"
+logp_kwargs="{override_config:{top_k: 0, logprobs:20, prompt_logprobs:20},logp_config: {enable_conf: true,window_size: 2048,threshold: $logp_threshold, dynamic_threshold: true}}"
 
     # data.train_files=/home/yichen/verl/data/dapo17k/train.parquet \
 
     # "+actor_rollout_ref.rollout.engine_kwargs.vllm.pruning_kwargs=$logp_kwargs" \
 # 32 / 2
-python3 -m verl.trainer.main_ppo \
+CUDA_VISIBLE_DEVICES=2,3 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=2 \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     "data.val_files=$VAL_FILES" \
     "+actor_rollout_ref.rollout.engine_kwargs.vllm.pruning_kwargs=$logp_kwargs" \
-    "+algorithm.early_exit_grad=True" \
-    "+algorithm.min_n=4" \
+    "+algorithm.early_exit_grad=False" \
+    "+algorithm.min_n=2" \
     data.train_batch_size=16 \
     actor_rollout_ref.actor.ppo_mini_batch_size=4 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
