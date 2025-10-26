@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH -A bfne-dtai-gh
 #SBATCH -p ghx4
 #SBATCH -N 1
@@ -7,7 +7,7 @@
 #SBATCH --gpus-per-node=2
 #SBATCH --mem=250G
 #SBATCH --time=24:00:00
-#SBATCH -J qwen3-1.7b_grpo_1e-6_math4_8k_test
+#SBATCH -J qwen3-1.7b_grpo_1e-6_math4_8k_logp_17_gradn
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
 
@@ -21,7 +21,7 @@ export HYDRA_FULL_ERROR=1
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
 save_path=$BASE_PATH/output
-exp_name=qwen3-1.7b_grpo_1e-6_math4_8k_test
+exp_name=qwen3-1.7b_grpo_1e-6_math4_8k_logp_17_gradn
 project_name='verl_grpo_example_gsm8k'
 
 aime2024_path=$BASE_PATH/data/aime2024/test.parquet
@@ -36,28 +36,32 @@ gsm8k_path=$BASE_PATH/data/gsm8k/test.parquet
 
 TRAIN_FILES=$BASE_PATH/data/mathlighteval/train_level4.parquet
 
-# VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$olympiadbench_path', '$math500_path', '$minerva_path']"
-VAL_FILES="['$aime2024_path']"
+VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$olympiadbench_path', '$math500_path', '$minerva_path']"
+logp_threshold=17
+logp_kwargs="{override_config:{top_k: 0, logprobs:20, prompt_logprobs:20},logp_config: {enable_conf: true,window_size: 2048,threshold: $logp_threshold}}"
 
 mkdir -p $BASE_PATH/checkpoints/$exp_name
 
-# conda activate verl
+conda activate verl
 
 python3 -m verl.trainer.main_ppo \
-    trainer.n_gpus_per_node=1 \
+    trainer.n_gpus_per_node=2 \
     trainer.val_before_train=True \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     "data.val_files=$VAL_FILES" \
-    data.train_batch_size=8 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=2 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2  \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    "+actor_rollout_ref.rollout.engine_kwargs.vllm.pruning_kwargs=$logp_kwargs" \
+    "+algorithm.early_exit_grad=False" \
+    "+algorithm.min_n=2" \
+    data.train_batch_size=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4  \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     data.max_prompt_length=512 \
-    data.max_response_length=1024 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=1536 \
+    data.max_response_length=8192 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=8704 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=Qwen/Qwen3-1.7B \
@@ -71,7 +75,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \

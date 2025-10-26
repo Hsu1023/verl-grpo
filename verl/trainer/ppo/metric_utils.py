@@ -107,6 +107,9 @@ def compute_logp_metrics(batch: DataProto, percentile: float=25) -> dict[str, An
     if "logp_topk" not in batch.batch:
         return {}
     valid_logps = batch.batch["logp_topk"]
+    # if any Nonetype, return empty dict
+    if valid_logps is None:
+        return {}
 
     logp_mean = torch.mean(valid_logps).detach().item()
     logp_max = torch.max(valid_logps).detach().item()

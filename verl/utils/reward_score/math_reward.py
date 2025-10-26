@@ -78,8 +78,8 @@ def remove_boxed(s):
 
 def last_boxed_only_string(string):
     idx = string.rfind("\\boxed")
-    if "\\boxed " in string:
-        return "\\boxed " + string.split("\\boxed ")[-1].split("$")[0]
+    # if "\\boxed " in string:
+    #     return "\\boxed " + string.split("\\boxed ")[-1].split("$")[0]
     if idx < 0:
         idx = string.rfind("\\fbox")
         if idx < 0:

@@ -132,3 +132,4 @@ output__*/
 flash_attn-*.whl
 core
 flash-attention
+conf_results*.json

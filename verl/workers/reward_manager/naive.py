@@ -77,6 +77,8 @@ class NaiveRewardManager(AbstractRewardManager):
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
+            response_length = len(valid_response_ids)
+            # print('response_length:', response_length)
 
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
@@ -98,6 +100,7 @@ class NaiveRewardManager(AbstractRewardManager):
                 # Store the information including original reward
                 for key, value in score.items():
                     reward_extra_info[key].append(value)
+                reward_extra_info["length"].append(response_length)
             else:
                 reward = score
 

@@ -313,11 +313,13 @@ def compute_grpo_outcome_advantage(
     with torch.no_grad():
         bsz = scores.shape[0]
         
-        for i in range(bsz):
-            if not early_exit[i].item():
-                id2score[index[i]].append(scores[i])
+
         
         if config.get("early_exit_grad", True) is False: # omit the samples with early_exit=True when computing mean and std
+            for i in range(bsz):
+                if not early_exit[i].item():
+                    id2score[index[i]].append(scores[i])
+                    
             min_n = config.get("min_n", -1)
             for i in range(bsz):
                 if min_n > 0 and len(id2score[index[i]]) < min_n:
@@ -325,8 +327,11 @@ def compute_grpo_outcome_advantage(
             
             id2score = defaultdict(list)
             for i in range(bsz):
-                if not early_exit[i].item():
+                if not (early_exit[i].item()):
                     id2score[index[i]].append(scores[i])
+        else:
+            for i in range(bsz):
+                id2score[index[i]].append(scores[i])
                 
         for idx in id2score:
             if len(id2score[idx]) == 1:

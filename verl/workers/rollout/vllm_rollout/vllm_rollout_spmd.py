@@ -246,6 +246,7 @@ class vLLMRollout(BaseRollout):
                     old_value = getattr(self.sampling_params, key)
                     old_sampling_params_args[key] = old_value
                     setattr(self.sampling_params, key, value)
+        print(f"updated sampling params: {kwargs}")
         yield
         # roll back to previous sampling params
         # if len(old_sampling_params_args):
@@ -335,7 +336,7 @@ class vLLMRollout(BaseRollout):
                 "temperature": self.config.val_kwargs.temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
-        
+        # print(f"generate_sequences kwargs: {kwargs}")
         logp_config = {}
         if not is_validate and self.pruning_kwargs: # training
             logp_config = self.pruning_kwargs.get("logp_config", None)

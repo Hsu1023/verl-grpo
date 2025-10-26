@@ -18,7 +18,7 @@ path = f'{folder_path}/train.log'
 datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025', 'early_stop']
 with open(path, 'r') as f:
     lines = f.readlines()
-for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac', 'actor/ppo_kl']:
+for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac', 'actor/ppo_kl', 'actor/kl_loss']:
     matches = {}
     for line in lines:
         if content == 'rewards':
@@ -35,6 +35,9 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
             match = re.search(pattern, line)
         elif content == 'actor/ppo_kl':
             pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/ppo_kl:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+            match = re.search(pattern, line)
+        elif content == 'actor/kl_loss':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/kl_loss:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
             match = re.search(pattern, line)
         elif 'early_stop' in content:
             pattern = r'step:([-+]?\d*\.\d+|\d+).*?early_stop/ratio:([-+]?\d*\.\d+|\d+)'
