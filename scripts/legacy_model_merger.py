@@ -366,7 +366,7 @@ class FSDPModelMerger(BaseModelMerger):
         print(f"Processing model shards with {total_shards} {mesh_shape} in total")
 
         merged_state_dict = self._load_and_merge_state_dicts(world_size, total_shards, mesh_shape, mesh_dim_names)
-        print(merged_state_dict)
+        # print(merged_state_dict)
 
         if self.config.operation == "test":
             if not self.config.test_hf_dir:

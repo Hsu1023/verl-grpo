@@ -133,3 +133,8 @@ flash_attn-*.whl
 core
 flash-attention
 conf_results*.json
+conf_results
+merged_checkpoints/
+*.out
+*.err
+*.png

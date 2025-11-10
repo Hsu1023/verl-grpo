@@ -107,3 +107,19 @@ class RayDistributedExecutor(RayDistributedExecutorV0, Executor):
         ReconfigureRankType.SHUTDOWN_CURRENT_RANK:
             self.shutdown()
         return
+    
+    def shutdown(self) -> None:
+        if logger:
+            # Somehow logger can be None here.
+            logger.info(
+                "Shutting down Ray distributed executor. If you see error log "
+                "from logging.cc regarding SIGTERM received, please ignore "
+                "because this is the expected termination process in Ray."
+            )
+        if hasattr(self, "forward_dag") and self.forward_dag is not None:
+            self.forward_dag.teardown()
+            import ray
+
+            for worker in self.workers:
+                ray.kill(worker)
+            self.forward_dag = None

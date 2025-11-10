@@ -216,6 +216,9 @@ class SamplingParams(
     last token of a corresponding token sequence is not allowed when the next
     generated token can complete the sequence."""
     _bad_words_token_ids: Optional[list[list[int]]] = None
+    
+    stop_at_boxed: bool = False
+    """Whether to stop generation when a boxed span is generated. A boxed span is a substring of the form \\boxed{...}, which is commonly used in GRPO to denote a mathematical expression. If set to True, the generation will stop when a boxed span is generated, and the output will include the boxed span."""
 
     @staticmethod
     def from_optional(
@@ -250,6 +253,7 @@ class SamplingParams(
         logit_bias: Optional[Union[dict[int, float], dict[str, float]]] = None,
         allowed_token_ids: Optional[list[int]] = None,
         extra_args: Optional[dict[str, Any]] = None,
+        stop_at_boxed: bool = False,
     ) -> "SamplingParams":
         if logit_bias is not None:
             # Convert token_id to integer
@@ -292,6 +296,7 @@ class SamplingParams(
             logit_bias=logit_bias,
             allowed_token_ids=allowed_token_ids,
             extra_args=extra_args,
+            stop_at_boxed=stop_at_boxed,
         )
 
     def __post_init__(self) -> None:

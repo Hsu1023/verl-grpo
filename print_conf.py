@@ -101,7 +101,9 @@ def confs_for_each_boxed(
         # print(len(enc_ids), len(token_ids))
         
         if len(enc_ids) != len(token_ids):
-            print(f"re-tokenize 的长度与传入的 token_ids 不一致，请统一 tokenizer 与参数。{enc_ids[-10:]} vs {token_ids[-10:]}")
+            print(f"re-tokenize 的长度与传入的 token_ids 不一致，请统一 tokenizer 与参数。{enc_ids} vs {token_ids}")
+            print(f"{tk.decode(enc_ids)}")
+            print(f"{tk.decode(token_ids)}")
             return [], [], []
 
     conf_groups: List[List[float]] = []
@@ -162,22 +164,30 @@ def get_last_confs(confs: Sequence[float]):
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, default="qwen3-1.7b-base", choices=['qwen3-1.7b', "qwen3-1.7b-base"], help='model path')
+parser.add_argument('--model', type=str, default="qwen3-1.7b-base", choices=['qwen3-1.7b', "qwen3-1.7b-base", "qwen3-4b-base", "qwen3-4b"], help='model path')
 parser.add_argument('--data', type=str, default="math5", choices=['math5', 'math4', 'math1', 'dapo17k'],
                     help='data file path')
 parser.add_argument('--begin', type=int, default=0, help='begin idx')
 parser.add_argument('--end', type=int, default=100, help='end idx')
+parser.add_argument('--traces', type=int, default=10, help='number of traces to generate for each prompt')
+parser.add_argument('--port', type=int, default=8000, help='max tokens to generate')
 args = parser.parse_args()
 if args.model == 'qwen3-1.7b':
     args.model_path = "Qwen/Qwen3-1.7B"
 elif args.model == 'qwen3-1.7b-base':
     args.model_path = "Qwen/Qwen3-1.7B-Base"
+elif args.model == 'qwen3-4b-base':
+    args.model_path = "Qwen/Qwen3-4B-Base"
+elif args.model == 'qwen3-4b':
+    args.model_path = "Qwen/Qwen3-4B"
 MODEL_PATH = args.model_path
 tk = AutoTokenizer.from_pretrained(MODEL_PATH, use_fast=True)
-MAX_TOKENS = 12800
+MAX_TOKENS = 32768  #16384 * 2
 RID = 0
 QID = 0
-PORT = 8000
+PORT = args.port
+
+WARMUP_TRACES = args.traces
 if args.data == 'math5':
     DATASET_FILE = "/u/haoboxu/work/verl/data/mathlighteval/train_level5.parquet"
 elif args.data == 'math4':
@@ -185,11 +195,10 @@ elif args.data == 'math4':
 elif args.data == 'math1':
     DATASET_FILE = "/u/haoboxu/work/verl/data/mathlighteval/train_level1.parquet"
 elif args.data == 'dapo17k':
-    DATASET_FILE = "/u/haoboxu/work/verl/data/dapo/dapo_17k.parquet"
+    DATASET_FILE = "/u/haoboxu/work/verl/data/dapo17k/train.parquet"
 ds = Dataset.from_parquet(DATASET_FILE)
 records = list(ds)
 
-WARMUP_TRACES = 1
 # prompt = "Re-arranging, $x^2 - 5x - 14 \le 0$. The left-hand quadratic factors as $x^2 - 5x - 14 = (x - 7)(x + 2) \le 0$. Thus, $x-7$ and $x+2$ have opposite signs, so $-2 \le x \le 7$ and $\boxed{x \in [-2,7]}$."
 client = openai.OpenAI(
     api_key="None",
@@ -204,10 +213,12 @@ for idx in tqdm(range(args.begin, args.end)):
     solution = record['reward_model']['ground_truth']
     
 
-    responses = client.completions.create(
+    # responses = client.completions.create(
+        
+    responses = client.chat.completions.create(
         model=MODEL_PATH,
-        # messages=messages,
-        prompt=messages[0]['content'],
+        messages=messages,
+        # prompt=messages[0]['content'],
         max_tokens=MAX_TOKENS,
         temperature=1.0,
         top_p=1.0,
@@ -217,7 +228,7 @@ for idx in tqdm(range(args.begin, args.end)):
         extra_body={"top_k": 0},
         seed=42,
     )
-    print(responses)
+    # print(responses)
 
     def compute_confidence(logprobs):
         """Compute confidence score from logprobs."""
@@ -231,17 +242,23 @@ for idx in tqdm(range(args.begin, args.end)):
     for j in range(WARMUP_TRACES):
         choice = responses.choices[j]
         text = choice.message.content
-        print(text)
+        # print(text)
         tokens = [t.token for t in choice.logprobs.content]
         confs, raw_conf = compute_confidence([t.top_logprobs for t in choice.logprobs.content])
-        confs = confs[:-1]
-        token_ids = [tk.encode(t)[0] for t in tokens[:-1]]
-        conf_groups, idx_groups, spans = confs_for_each_boxed(text, token_ids, confs, tk)
-        if conf_groups == []:
-            print([])
-            continue
-        answers = [text[s:e] for (s,e) in spans]
-        correctness = [compute_score(so, solution)['acc'] for so in answers]
+        # confs = confs[:-1]
+        # token_ids = [tk.encode(t)[0] for t in tokens[:-1]]
+        # conf_groups, idx_groups, spans = confs_for_each_boxed(text, token_ids, confs, tk)
+        # if conf_groups == []:
+        #     print([])
+        #     print(idx, j, "No boxed spans found or tokenization mismatch.")
+        #     exit(0)
+        #     continue
+        # answers = [text[s:e] for (s,e) in spans]
+        import re
+        answers = re.findall(r'\\boxed\{(.*?)\}', text)
+        # correctness = [compute_score(so, solution)['acc'] for so in answers]
+        correctness = [is_equiv(so, solution) for so in answers]
+        print(f"Trace {j}: answers: {answers[-1]}, solution: {solution},  correctness: {correctness}")
         min_confs = get_min_confs(confs)
         last_confs = get_last_confs(confs)
         
@@ -250,19 +267,46 @@ for idx in tqdm(range(args.begin, args.end)):
             'prompt': messages,
             "solution": solution,
             "correctness": correctness,
-            "boxed_confs": conf_groups,
-            "mean_boxed_confs": [sum(cg)/len(cg) for cg in conf_groups],
+            # "boxed_confs": conf_groups,
+            # "mean_boxed_confs": [sum(cg)/len(cg) for cg in conf_groups],
             "min_confs": min_confs,
             "last_confs": last_confs,
             'length_of_confs': len(confs),
-            'spans': spans,
+            # 'spans': spans,
             "text": text,
             "raw_conf": raw_conf,
         })
+print(len(results), "results collected.")
 
-JSON_FILE = f"conf_results_{args.model}_{args.data}.json"
-if os.path.exists(JSON_FILE):
-    data = json.load(open(JSON_FILE, 'r'))
-    results = data + results
-with open(JSON_FILE, 'w') as f:
-    json.dump(results, f)
+import fcntl
+
+JSON_FILE = f"conf_results_{args.model}_{args.data}_traces{WARMUP_TRACES}.json"
+
+def update_json(results):
+    # 以读写方式打开（没有就创建）
+    with open(JSON_FILE, "a+") as f:
+        # 加独占锁（阻塞等待）
+        fcntl.flock(f, fcntl.LOCK_EX)
+
+        # 先回到文件开头，读旧数据
+        f.seek(0)
+        try:
+            text = f.read().strip()
+            old_data = json.loads(text) if text else []
+        except json.JSONDecodeError:
+            old_data = []
+
+        new_data = old_data + results
+
+        # 覆盖写
+        f.seek(0)
+        f.truncate()
+        json.dump(new_data, f)
+        f.flush()
+        os.fsync(f.fileno())
+
+        # 解锁（with 结束会自动关文件，锁也会释放）
+        fcntl.flock(f, fcntl.LOCK_UN)
+        
+update_json(results)
+print(f"Results saved to {JSON_FILE}.")

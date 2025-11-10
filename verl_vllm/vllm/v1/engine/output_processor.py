@@ -18,6 +18,7 @@ from vllm.transformers_utils.tokenizer_group import TokenizerGroup
 from vllm.v1.engine import EngineCoreOutput, EngineCoreRequest, FinishReason
 from vllm.v1.engine.detokenizer import IncrementalDetokenizer
 from vllm.v1.engine.logprobs import LogprobsProcessor
+from vllm.v1.engine.stop_processor import StopProcessor
 from vllm.v1.engine.parallel_sampling import ParentRequest
 from vllm.v1.metrics.stats import (IterationStats, LoRARequestStates,
                                    RequestStateStats)
@@ -89,6 +90,7 @@ class RequestState:
         prompt: Optional[str],
         prompt_token_ids: list[int],
         logprobs_processor: Optional[LogprobsProcessor],
+        stop_processor: Optional[StopProcessor],
         detokenizer: Optional[IncrementalDetokenizer],
         max_tokens_param: Optional[int],
         arrival_time: float,
@@ -107,6 +109,7 @@ class RequestState:
         self.prompt_token_ids = prompt_token_ids
         self.prompt_len = len(prompt_token_ids)
         self.logprobs_processor = logprobs_processor
+        self.stop_processor = stop_processor
         self.detokenizer = detokenizer
         self.max_tokens_param = max_tokens_param
         self.top_p = top_p
@@ -139,6 +142,11 @@ class RequestState:
                 tokenizer=tokenizer,
                 request=request,
             )
+            stop_processor = StopProcessor.from_new_request(
+                tokenizer=tokenizer,
+                request=request,
+            )
+            # stop_processor = None
             detokenizer = IncrementalDetokenizer.from_new_request(
                 tokenizer=tokenizer,
                 request=request,
@@ -154,6 +162,7 @@ class RequestState:
             top_p = None
             n = None
             temperature = None
+            stop_processor = None
             assert request.pooling_params is not None
             output_kind = request.pooling_params.output_kind
 
@@ -167,6 +176,7 @@ class RequestState:
             prompt=prompt,
             prompt_token_ids=request.prompt_token_ids,
             logprobs_processor=logprobs_processor,
+            stop_processor=stop_processor,
             detokenizer=detokenizer,
             max_tokens_param=max_tokens_param,
             top_p=top_p,
@@ -432,7 +442,13 @@ class OutputProcessor:
                 if req_state.logprobs_processor.check_conf_stop():
                     finish_reason = FinishReason.STOP
                     stop_reason = f"<conf<{req_state.logprobs_processor.conf_threshold}>"
-                    # print('stop')
+                
+                if req_state.stop_processor is not None and \
+                 req_state.stop_processor.should_stop(engine_core_output):
+                    finish_reason = FinishReason.STOP
+                    stop_reason = "<boxed>"
+                    
+            # boxed span-based early stopping (GRPO)
                 
             # 4) Create and handle RequestOutput objects.
             if request_output := req_state.make_request_output(
