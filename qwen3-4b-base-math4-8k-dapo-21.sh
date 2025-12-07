@@ -34,7 +34,8 @@ math500_path=$BASE_PATH/data/math500/test.parquet
 minerva_path=$BASE_PATH/data/minervamath/test.parquet
 gsm8k_path=$BASE_PATH/data/gsm8k/test.parquet
 
-TRAIN_FILES=$BASE_PATH/data/dapo17k/train.parquet
+# TRAIN_FILES=$BASE_PATH/data/dapo17k/train.parquet
+TRAIN_FILES=$BASE_PATH/data/mathlighteval/train_level1.parquet
 
 # start time
 time1=$(date +%s)
@@ -69,7 +70,6 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     actor_rollout_ref.model.path=Qwen/Qwen3-4B-Base \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=1e-3 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \

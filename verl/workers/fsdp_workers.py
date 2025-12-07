@@ -522,8 +522,24 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if role == "actor" and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
+            probe_lr = optim_config.get("probe_lr", None)
+            named_params = list(actor_module_fsdp.named_parameters())
+            if probe_lr is not None:
+                base_params = [p for n, p in named_params if "probe_head" not in n and p.requires_grad]
+                probe_params = [p for n, p in named_params if "probe_head" in n and p.requires_grad]
+                if probe_params:
+                    param_groups = [{"params": base_params}, {"params": probe_params, "lr": probe_lr}]
+                else:
+                    param_groups = [{"params": base_params}]
+                # ret = probe_params
+            else:
+                param_groups = [{"params": [p for _, p in named_params if p.requires_grad]}]
+                # ret = None
+            # assert 0, (probe_lr, probe_params)
+            # print(probe_lr, [n for n, p in named_params if "probe_head" in n and p.requires_grad])
+
             actor_optimizer = optim.AdamW(
-                actor_module_fsdp.parameters(),
+                param_groups,
                 lr=optim_config.lr,
                 betas=optim_config.get("betas", (0.9, 0.999)),
                 weight_decay=optim_config.get("weight_decay", 1e-2),

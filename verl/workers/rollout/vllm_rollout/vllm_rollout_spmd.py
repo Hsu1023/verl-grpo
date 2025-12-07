@@ -355,6 +355,20 @@ class vLLMRollout(BaseRollout):
                 }
             )
             print(f"updated_conf: {prompts.meta_info['current_conf']}")
+        
+        
+        if prompts.meta_info.get('probe_max', -1.0) >= 0 and prompts.meta_info.get('probe_stop_token_num', -1) > 0:
+            # assert 0, (prompts.meta_info['probe_max'], prompts.meta_info['probe_min'], prompts.meta_info['probe_stop_token_num'])
+            if 'extra_args' not in kwargs:
+                kwargs['extra_args'] = {}
+            kwargs["extra_args"].update({
+                    "probe_max": prompts.meta_info['probe_max'],
+                    "probe_min": prompts.meta_info['probe_min'],
+                    "probe_stop_token_num": prompts.meta_info['probe_stop_token_num'],
+                }
+            )
+        # assert 0, prompts.meta_info.get('probe_max', -1.0)
+            # print(f"probe max min: {prompts.meta_info['probe_max']}, {prompts.meta_info['probe_min']}")
 
         lora_requests = None
         if self.lora_kwargs:
@@ -373,8 +387,13 @@ class vLLMRollout(BaseRollout):
                 lora_request=lora_requests,
                 use_tqdm=False,
             )
+            # for _out in outputs:
+            #     probe_logits = getattr(_out, "probe_logits", None)
+            #     if probe_logits is not None:
+            #         print(f"probe_logits (final step): {probe_logits}", flush=True)
             
             # print(outputs)
+            # assert 0, (type(outputs[0]), len(outputs))
 
             # TODO(sgm): disable logprob when recompute_log_prob is enable
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
@@ -416,7 +435,7 @@ class vLLMRollout(BaseRollout):
                     # early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.stop_reason.startswith("<conf") else 0)
                     # if stop_reason is not None:
                     #     print(f"stop reason: {stop_reason}")
-                    early_exit.append(1 if isinstance(stop_reason, str) and stop_reason.startswith("<conf") else 0)
+                    early_exit.append(1 if isinstance(stop_reason, str) and (stop_reason.startswith("<conf") or stop_reason.startswith("<probe")) else 0)
 
             if len(logp_topks) > 0:
                 logp_topks = np.array(logp_topks, dtype=np.float32)
@@ -502,6 +521,9 @@ class vLLMRollout(BaseRollout):
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
         peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
+        # print(f"vLLM update_weights {weights}")
+        # assert 0, weights
+        # assert 0, (peft_config, base_sync_done)
         if peft_config and base_sync_done:
             lora_int_id = int(time.time_ns() % 0x7FFFFFFF)
             lora_reqest = TensorLoRARequest(

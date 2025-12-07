@@ -194,6 +194,7 @@ class RequestState:
         finish_reason: Optional[FinishReason],
         stop_reason: Union[int, str, None],
         kv_transfer_params: Optional[dict[str, Any]] = None,
+        probe_logits: Optional[list[float]] = None,
     ) -> Optional[Union[RequestOutput, PoolingRequestOutput]]:
 
         finished = finish_reason is not None
@@ -221,7 +222,7 @@ class RequestState:
                 return None
 
         return self._new_request_output(request_id, outputs, finished,
-                                        kv_transfer_params)
+                                        kv_transfer_params, probe_logits)
 
     def _new_request_output(
         self,
@@ -229,6 +230,7 @@ class RequestState:
         outputs: Union[list[CompletionOutput], list[PoolingOutput]],
         finished: bool,
         kv_transfer_params: Optional[dict[str, Any]] = None,
+        probe_logits: Optional[list[float]] = None,
     ) -> Union[RequestOutput, PoolingRequestOutput]:
 
         first_output = outputs[0]
@@ -251,11 +253,12 @@ class RequestState:
             request_id=request_id,
             prompt=self.prompt,
             prompt_token_ids=self.prompt_token_ids,
-            prompt_logprobs=prompt_logprobs,
-            outputs=cast(list[CompletionOutput], outputs),
-            finished=finished,
-            kv_transfer_params=kv_transfer_params,
-            num_cached_tokens=self.num_cached_tokens,
+                prompt_logprobs=prompt_logprobs,
+                outputs=cast(list[CompletionOutput], outputs),
+                finished=finished,
+                kv_transfer_params=kv_transfer_params,
+                num_cached_tokens=self.num_cached_tokens,
+                probe_logits=probe_logits,
         )
 
     def _new_completion_output(
@@ -420,8 +423,17 @@ class OutputProcessor:
             finish_reason = engine_core_output.finish_reason
             stop_reason = engine_core_output.stop_reason
             kv_transfer_params = engine_core_output.kv_transfer_params
+            probe_logits = engine_core_output.probe_logits
             req_state.num_cached_tokens = engine_core_output.num_cached_tokens
             req_state.is_prefilling = False
+            # print(f'vllm log: {probe_logits }', flush=True)
+            
+            # print("probe_logits in output_processor:", engine_core_output.probe_logits)
+            # assert 0, f"probe_logits in output_processor: {engine_core_output.probe_logits}"
+            # probe_logits should be in [0, 1], is a list of floats
+            if engine_core_output.probe_logits is not None:
+                assert all((0.0 <= logit <= 1.0) for logit in engine_core_output.probe_logits), \
+                f"probe_logits out of range [0, 1]: {engine_core_output.probe_logits}"
 
             if pooling_output is None:
                 assert req_state.detokenizer is not None
@@ -448,12 +460,16 @@ class OutputProcessor:
                     finish_reason = FinishReason.STOP
                     stop_reason = "<boxed>"
                     
+                if probe_logits is not None and req_state.logprobs_processor.check_probe_stop(probe_logits, len(new_token_ids)):
+                    finish_reason = FinishReason.STOP
+                    stop_reason = "<probe>"
+                    
             # boxed span-based early stopping (GRPO)
                 
             # 4) Create and handle RequestOutput objects.
             if request_output := req_state.make_request_output(
                     new_token_ids, pooling_output, finish_reason, stop_reason,
-                    kv_transfer_params):
+                    kv_transfer_params, probe_logits):
                 if req_state.queue is not None:
                     # AsyncLLM: put into queue for handling by generate().
                     req_state.queue.put(request_output)
@@ -479,8 +495,9 @@ class OutputProcessor:
                 if self.tracer:
                     self.do_tracing(engine_core_output, req_state,
                                     iteration_stats)
+                # assert 0, request_outputs
         self.lora_states.update_iteration_stats(iteration_stats)
-
+        
         return OutputProcessorOutput(
             request_outputs=request_outputs,
             reqs_to_abort=reqs_to_abort,

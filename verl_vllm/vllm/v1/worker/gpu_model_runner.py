@@ -1868,7 +1868,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
     def _bookkeeping_sync(
         self, scheduler_output: "SchedulerOutput",
         sampler_output: SamplerOutput, logits: Optional[torch.Tensor],
-        hidden_states: torch.Tensor, num_scheduled_tokens: int
+        hidden_states: torch.Tensor, num_scheduled_tokens: int, probe_logits: Optional[torch.Tensor]
     ) -> tuple[
             dict[str, int],
             Optional[LogprobsLists],
@@ -1877,6 +1877,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             list[str],
             dict[str, int],
             list[int],
+            list[float],
     ]:
         num_nans_in_logits = {}
         if envs.VLLM_COMPUTE_NANS_IN_LOGITS:
@@ -1908,6 +1909,15 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
 
         # NOTE: GPU -> CPU Sync happens here.
         # Move as many CPU operations as possible before this sync point.
+        
+        # if probe_logits is not None:
+        #     self._record_probe_logits(
+        #         probe_logits,
+        #         scheduler_output.num_scheduled_tokens,
+        #     )
+        # print(type(probe_logits), type(sampler_output.logprobs_tensors))
+        # assert 0, f"type(probe_logits)={type(probe_logits)}, type(sampler_output.logprobs_tensors)={type(sampler_output.logprobs_tensors)}"
+        probe_logits = probe_logits.tolist() if probe_logits is not None else None
         logprobs_tensors = sampler_output.logprobs_tensors
         logprobs_lists = logprobs_tensors.tolists() \
             if logprobs_tensors is not None else None
@@ -1994,6 +2004,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             req_ids_output_copy,
             req_id_to_index_output_copy,
             invalid_req_indices,
+            probe_logits,
         )
 
     @torch.inference_mode()
@@ -2100,15 +2111,29 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
 
                 sample_hidden_states = hidden_states[logits_indices]
                 logits = self.model.compute_logits(sample_hidden_states, None)
+                # if have self.model.compute_conf_logits:
+                if hasattr(self.model, "compute_probe_logits"):
+                    probe_logits = self.model.compute_probe_logits(
+                        sample_hidden_states, None)
+                else:
+                    probe_logits = None
             if broadcast_pp_output:
                 model_output_broadcast_data = {
                     "logits": logits.contiguous(),
                 } if logits is not None else {}
+                
+                if probe_logits is not None:
+                    model_output_broadcast_data["probe_logits"] = \
+                        probe_logits.contiguous()
+                
+                
                 model_output_broadcast_data = get_pp_group(
                 ).broadcast_tensor_dict(model_output_broadcast_data,
                                         src=len(get_pp_group().ranks) - 1)
                 assert model_output_broadcast_data is not None
                 logits = model_output_broadcast_data["logits"]
+                if "probe_logits" in model_output_broadcast_data:
+                    probe_logits = model_output_broadcast_data["probe_logits"]
 
             # Apply structured output bitmasks if present
             if scheduler_output.grammar_bitmask is not None:
@@ -2126,9 +2151,10 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 req_ids_output_copy,
                 req_id_to_index_output_copy,
                 invalid_req_indices,
+                probe_logits,
             ) = self._bookkeeping_sync(scheduler_output, sampler_output,
                                        logits, hidden_states,
-                                       num_scheduled_tokens)
+                                       num_scheduled_tokens, probe_logits)
 
         if self.speculative_config:
             assert spec_decode_common_attn_metadata is not None
@@ -2156,6 +2182,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             pooler_output=[],
             kv_connector_output=kv_connector_output,
             num_nans_in_logits=num_nans_in_logits,
+            probe_logits=probe_logits,
         )
 
         if not self.use_async_scheduling:

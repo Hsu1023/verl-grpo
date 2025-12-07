@@ -31,13 +31,14 @@ VAL_FILES="[\"$aime2024_path\",\"$aime2025_path\",\"$amc23_path\"]"
 LOCAL_DIR=/projects/bfne/qwen3-4b_base_grpo_1e-6_math4_16k_dapo
 TARGET_DIR=/u/haoboxu/work/verl/merged_checkpoints/qwen3-4b_base_grpo_1e-6_math4_16k_dapo
 BASE_MODEL_PATH=Qwen/Qwen3-4B-Base
-EVALUATE_ARGS="--max_length 16384 --pass_k 16 --batch_size 2 --val_dataset $VAL_FILES"
+EVALUATE_ARGS="--max_length 16384 --pass_k 16 --batch_size 1 --val_dataset $VAL_FILES"
 
 # torchrun --standalone --nproc_per_node=1 merge.py --local_dir $LOCAL_DIR  --target_dir $TARGET_DIR --hf_model_path $BASE_MODEL_PATH
 
 # torchrun evaluate.py --model_dir $BASE_MODEL_PATH ${EVALUATE_ARGS}
 
-ckpts=("200" "300" "400" "500" "600")
+# ckpts=("200" "300" "400" "500" "600")
+ckpts=("300" "500" "600")
 # ckpts=("600")
 for ckpt in "${ckpts[@]}"; do
     torchrun evaluate.py --model_dir $TARGET_DIR/global_step_$ckpt ${EVALUATE_ARGS}

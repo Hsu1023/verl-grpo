@@ -453,24 +453,61 @@ def compute_grpo_outcome_advantage_cutoff(
     # early_exit = torch.concat([torch.zeros(n), torch.ones(128-n)], dim=0).reshape(-1).to(torch.bool)
     
     
-    
     # dp_size=2, please make sure early_exit is correct; otherwise, random add samples to early_exit to make sure that it can be divided by dp_size
-    if early_exit.sum().item() % 2 != 0:
-        diff = 2 - (early_exit.sum().item() % 2)
-        for i in range(len(early_exit)):
-            if not early_exit[i]:
-                early_exit[i] = True
-                diff -= 1
-            if diff == 0:
-                break
+    
+    # if early_exit.sum().item() % 2 != 0:
+    #     diff = 2 - (early_exit.sum().item() % 2)
+    #     for i in range(len(early_exit)):
+    #         if not early_exit[i]:
+    #             early_exit[i] = True
+    #             diff -= 1
+    #         if diff == 0:
+    #             break
     
     
-    data.batch = data.batch[early_exit]
+    # Keep non-early-exit samples, but pad with early-exit samples so total is divisible by dp_size.
+    original_early_exit = ~early_exit  # True means this sample was marked early-exit before inversion above
+    keep_mask = ~original_early_exit
+    keep_indices = torch.nonzero(keep_mask).squeeze(-1)
+    final_mask = keep_mask.clone()
+    if dp_size is not None and dp_size > 0:
+        keep_count = keep_indices.numel()
+        if keep_count == 0:
+            # All samples are early-exit; select early-exit samples so batch size == dp_size (grad already zeroed).
+            drop_indices = torch.nonzero(original_early_exit).squeeze(-1)
+            if drop_indices.numel() == 0:
+                drop_indices = torch.arange(dp_size, device=keep_mask.device)
+            elif drop_indices.numel() < dp_size:
+                repeat = (dp_size + drop_indices.numel() - 1) // drop_indices.numel()
+                drop_indices = drop_indices.repeat(repeat)[:dp_size]
+            else:
+                drop_indices = drop_indices[:dp_size]
+            final_mask = torch.zeros_like(keep_mask)
+            final_mask[drop_indices] = True
+        else:
+            pad = (dp_size - (keep_count % dp_size)) % dp_size
+            if pad > 0:
+                drop_indices = torch.nonzero(original_early_exit).squeeze(-1)
+                if drop_indices.numel() == 0:
+                    # Fallback: duplicate an existing kept sample (still zero grad because scores already zeroed)
+                    drop_indices = keep_indices[:1].repeat(pad)
+                elif drop_indices.numel() < pad:
+                    repeat = (pad + drop_indices.numel() - 1) // drop_indices.numel()
+                    drop_indices = drop_indices.repeat(repeat)
+                    drop_indices = drop_indices[:pad]
+                else:
+                    drop_indices = drop_indices[:pad]
+                final_mask = torch.zeros_like(keep_mask)
+                final_mask[keep_indices] = True
+                final_mask[drop_indices] = True
+
+    data.batch = data.batch[final_mask]
+    final_mask_cpu = final_mask.cpu().numpy().astype(bool)
     for key in data.non_tensor_batch:
         if isinstance(data.non_tensor_batch[key], np.ndarray):
-            data.non_tensor_batch[key] = data.non_tensor_batch[key][early_exit]
+            data.non_tensor_batch[key] = data.non_tensor_batch[key][final_mask_cpu]
         elif isinstance(data.non_tensor_batch[key], list):
-            data.non_tensor_batch[key] = [item for idx, item in enumerate(data.non_tensor_batch[key]) if early_exit[idx]]
+            data.non_tensor_batch[key] = [item for idx, item in enumerate(data.non_tensor_batch[key]) if final_mask_cpu[idx]]
         else:
             raise ValueError(f"Unsupported type in non_tensor_batch: {type(data.non_tensor_batch[key])}")
             

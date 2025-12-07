@@ -47,19 +47,19 @@ def last_boxed_only_string(string: str) -> Optional[str]:
     return string[idx : right_brace_idx + 1] if right_brace_idx is not None else None
 
 
-def remove_boxed(s: str) -> str:
-    """Remove the LaTeX boxed command from a string.
+# def remove_boxed(s: str) -> str:
+#     """Remove the LaTeX boxed command from a string.
 
-    Args:
-        s: String with format "\\boxed{content}"
+#     Args:
+#         s: String with format "\\boxed{content}"
 
-    Returns:
-        The content inside the boxed command
-    """
-    left = "\\boxed{"
-    assert s[: len(left)] == left, f"box error: {s}"
-    assert s[-1] == "}", f"box error: {s}"
-    return s[len(left) : -1]
+#     Returns:
+#         The content inside the boxed command
+#     """
+#     left = "\\boxed{"
+#     assert s[: len(left)] == left, f"box error: {s}"
+#     assert s[-1] == "}", f"box error: {s}"
+#     return s[len(left) : -1]
 
 
 # Constants for normalization
@@ -179,6 +179,7 @@ def is_correct_minerva(
     # Extract answer from solution
     # match = re.findall(answer_pattern, solution_str)
     # extracted_answer = match[-1] if match else "[INVALID]"
+    # assert 0, solution_str
     extracted_answer = solution_str.strip()
     pred = normalize_final_answer(extracted_answer)
 
@@ -267,21 +268,33 @@ def last_boxed_only_string(string):
 
 
 def remove_boxed(s):
-    if "\\boxed " in s:
-        left = "\\boxed "
-        assert s[: len(left)] == left
-        return s[len(left) :]
+    """Strip a leading boxed/fbox wrapper if present; fallback to raw string."""
+    if s is None:
+        return ""
 
-    left = "\\boxed{"
+    s = s.strip()
 
-    assert s[: len(left)] == left
-    assert s[-1] == "}"
+    # \boxed ans with a space: "\boxed 123"
+    if s.startswith("\\boxed "):
+        return s[len("\\boxed ") :]
 
-    return s[len(left) : -1]
+    # \boxed{ans}
+    if s.startswith("\\boxed{"):
+        inner = s[len("\\boxed{") :]
+        return inner[:-1] if inner.endswith("}") else inner
+
+    # \fbox{ans}
+    if s.startswith("\\fbox{"):
+        inner = s[len("\\fbox{") :]
+        return inner[:-1] if inner.endswith("}") else inner
+
+    # No known wrapper; return as-is to avoid assertion failures downstream.
+    return s
 
 def compute_score(
     solution_str: str,
     ground_truth: str,
+    use_format_reward: bool = False,
     strict_box_verify: bool = False,
     pause_tokens_index: Optional[list[int]] = None,
 ) -> float:
@@ -297,9 +310,12 @@ def compute_score(
         Reward score (1.0 for correct, -1.0 for incorrect)
     """
     solution_str = last_boxed_only_string(solution_str)
+    
     if solution_str:
+        format_score = 1.0
         solution_str = remove_boxed(solution_str)
     else:
+        format_score = 0.0
         solution_str = ""
     
     # Limit solution length for efficiency
@@ -311,8 +327,9 @@ def compute_score(
     reward = 1.0 if correct else -1.0
     acc = correct
 
+    score = reward + (1.0 if use_format_reward else 0.0) * format_score
     return {
-        "score": reward,
+        "score": score,
         "acc": acc,
         "pred": pred,
     }

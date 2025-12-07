@@ -84,12 +84,14 @@ class DataParallelPPOActor(BasePPOActor):
         self.device_name = get_device_name()
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self, micro_batch, temperature, calculate_entropy=False, calculate_probe=False, probe_stop_token_num=-1
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """
         Returns:
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
+            probe_logits: # (bs,) or None
+            probe_loss: # scalar or None
         """
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
@@ -97,7 +99,9 @@ class DataParallelPPOActor(BasePPOActor):
             from verl.utils.model import extract_multi_modal_inputs
 
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
-
+        need_probe = calculate_probe
+        probe_logits = None
+        probe_loss = None
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
@@ -166,6 +170,21 @@ class DataParallelPPOActor(BasePPOActor):
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
                     extra_args["return_dict"] = True
+                if need_probe:
+                    extra_args["return_dict"] = True
+                    extra_args["compute_probe"] = True
+                    acc_labels = micro_batch.get("acc")
+                    if acc_labels is not None:
+                        acc_labels = (
+                            acc_labels.to(device=input_ids.device, dtype=torch.bool)
+                            if torch.is_tensor(acc_labels)
+                            else torch.tensor(acc_labels, device=input_ids.device, dtype=torch.bool)
+                        )
+                    extra_args["probe_labels"] = (
+                        acc_labels if acc_labels is not None else micro_batch["token_level_scores"].sum(dim=-1) > 0.0
+                    )
+                    extra_args["probe_stop_token_num"] = probe_stop_token_num
+                    raise NotImplementedError("Probe with remove padding is not implemented yet.")
 
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
@@ -173,13 +192,15 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids=position_ids_rmpad,
                     **multi_modal_inputs,
                     use_cache=False,
+                    trust_remote_code=True,
                     **extra_args,
                 )  # prevent model thinks we are generating
+
+                # print(output.probe_logits)
 
                 if self.use_fused_kernels:
                     log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                     entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
-
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
@@ -238,6 +259,7 @@ class DataParallelPPOActor(BasePPOActor):
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+                
 
             else:  # not using rmpad and no ulysses sp
                 extra_args = {}
@@ -245,6 +267,25 @@ class DataParallelPPOActor(BasePPOActor):
                     extra_args["temperature"] = temperature
                     extra_args["return_dict"] = True
 
+                if need_probe:
+                    extra_args["return_dict"] = True
+                    extra_args["compute_probe"] = True
+                    extra_args["probe_stop_token_num"] = probe_stop_token_num
+                    acc_labels = micro_batch.get("acc")
+                    if acc_labels is not None:
+                        acc_labels = (
+                            acc_labels.to(device=input_ids.device, dtype=torch.bool)
+                            if torch.is_tensor(acc_labels)
+                            else torch.tensor(acc_labels, device=input_ids.device, dtype=torch.bool)
+                        )
+                        # print("acc_labels:", acc_labels)
+                    extra_args["probe_labels"] = (
+                        acc_labels if acc_labels is not None else micro_batch["token_level_scores"].sum(dim=-1) > 1e-6
+                    )
+                    scores = micro_batch["token_level_scores"].sum(dim=-1)
+                    assert torch.all(~((scores > 0.0) & (scores < 1.0))), scores
+
+                
                 output = self.actor_module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -253,6 +294,7 @@ class DataParallelPPOActor(BasePPOActor):
                     use_cache=False,
                     **extra_args,
                 )  # prevent model thinks we are generating
+                
 
                 if self.use_fused_kernels:
                     log_probs = output.log_probs[:, -response_length - 1 : -1]
@@ -270,7 +312,32 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
-            return entropy, log_probs
+                if need_probe:
+                    probe_logits = getattr(output, "probe_logits", None)
+                    probe_loss = getattr(output, "probe_loss", None)
+
+            if need_probe:
+                # If probe was not computed in the main forward (e.g., due to remove-padding path),
+                # run a padded forward to align probe predictions with the batch.
+                # if probe_logits is None:
+                #     probe_output = self.actor_module(
+                #         input_ids=input_ids,
+                #         attention_mask=attention_mask,
+                #         position_ids=position_ids,
+                #         **multi_modal_inputs,
+                #         use_cache=False,
+                #         return_dict=True,
+                #         output_hidden_states=True,
+                #         compute_probe=True,
+                #         probe_labels=probe_labels,
+                #     )
+                probe_logits = getattr(output, "probe_logits", None)
+                probe_loss = getattr(output, "probe_loss", None)
+
+                if probe_logits is not None and probe_logits.dim() > 1:
+                    probe_logits = probe_logits.squeeze(-1)
+
+            return entropy, log_probs, probe_logits, probe_loss
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -336,7 +403,7 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(
+                entropy, log_probs, _, _ = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
             log_probs_lst.append(log_probs)
@@ -361,6 +428,12 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module.train()
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
+        
+        probe_stop_token_num = data.meta_info.get("probe_stop_token_num", -1)
+        # assert 0, probe_stop_token_num
+        
+        # print(data.batch['token_level_scores'].sum(dim=-1), data.batch['token_level_rewards'].sum(dim=-1), data.batch['advantages'])
+        # print(data.batch.keys())
 
         select_keys = [
             "responses",
@@ -370,7 +443,10 @@ class DataParallelPPOActor(BasePPOActor):
             "position_ids",
             "old_log_probs",
             "advantages",
+            # "token_level_scores",
         ]
+        if self.config.use_probe:
+            select_keys.append("token_level_scores")
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         if self.config.tis_imp_ratio_cap > 0:
@@ -383,6 +459,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        if self.config.use_probe and "acc" in data.non_tensor_batch:
+            non_tensor_select_keys.append("acc")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -409,6 +487,11 @@ class DataParallelPPOActor(BasePPOActor):
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
+                    # see keys
+                    # print(f"Micro batch content: {micro_batch.batch.keys()}")
+                    
+                    # print(f"Micro batch re: {micro_batch.batch['responses']}")
+                    # print(f"Micro batch in: {response}")
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
@@ -427,8 +510,12 @@ class DataParallelPPOActor(BasePPOActor):
                     calculate_entropy = False
                     if entropy_coeff != 0:
                         calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(
-                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    
+                    # assert 0, self.config.use_probe
+                    entropy, log_prob, probe_logits, probe_loss = self._forward_micro_batch(
+                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy,
+                        calculate_probe=self.config.use_probe,
+                        probe_stop_token_num=probe_stop_token_num,  
                     )
 
                     if on_policy:
@@ -476,6 +563,51 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss * loss_scale_factor
                     else:
                         loss = policy_loss * loss_scale_factor
+                    if probe_loss is not None:
+                        probe_weight = getattr(self.config, "probe_loss_coef", 1.0)
+                        loss = loss + probe_weight * probe_loss
+                            
+                        with torch.no_grad():
+                            micro_batch_metrics["actor/probe_loss"] = probe_loss.detach().item() * probe_weight * loss_scale_factor
+                            if probe_stop_token_num > 0:
+                                stop_logits = probe_logits[:probe_logits.size(0) // 2]
+                                last_logits = probe_logits[probe_logits.size(0) // 2: ]
+                                # print("stop_logits:", stop_logits)
+                                # print("last_logits:", last_logits)
+                            else:
+                                stop_logits = probe_logits.detach()
+                                last_logits = stop_logits
+                            acc_labels = model_inputs.get("acc")
+                            if acc_labels is not None:
+                                acc_labels = (
+                                    acc_labels.to(device=last_logits.device, dtype=torch.bool)
+                                    if torch.is_tensor(acc_labels)
+                                    else torch.tensor(acc_labels, device=last_logits.device, dtype=torch.bool)
+                                )
+                                probe_labels = acc_labels
+                            else:
+                                probe_labels = model_inputs["token_level_scores"].sum(dim=-1) > 1e-6
+
+                            probe_preds = (last_logits > 0.5).float()
+                            micro_batch_metrics["actor/probe_acc"] = (
+                                (probe_preds == probe_labels.float()).float().mean().cpu().item()
+                            )
+                        
+                        
+                            # get 90%, 75%, 50%, 25%, 10% quantile logits
+                            quantiles = torch.quantile(
+                                    stop_logits.detach().float(),
+                                    torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9], device=stop_logits.device),
+                                )
+                            micro_batch_metrics["actor/probe_logits_q10"] = quantiles[0].item()
+                            micro_batch_metrics["actor/probe_logits_q25"] = quantiles[1].item()
+                            micro_batch_metrics["actor/probe_logits_q50"] = quantiles[2].item()
+                            micro_batch_metrics["actor/probe_logits_q75"] = quantiles[3].item()
+                            micro_batch_metrics["actor/probe_logits_q90"] = quantiles[4].item()
+                        
+                        # print(f"Probe loss: {probe_loss.detach().item()}, weight: {probe_weight}")
+                        # assert 0, probe_loss.detach().item()
+
                     loss.backward()
 
                     micro_batch_metrics.update(

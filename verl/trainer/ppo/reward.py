@@ -128,6 +128,8 @@ def load_reward_manager(
         sandbox_config = config.reward_model.get("sandbox_fusion")
         sandbox_url = sandbox_config.get("url") if sandbox_config else None
         memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024)
+        # extra_info = sandbox_config.get("extra_info", None)
+        use_format_reward = config.reward_model.get("use_format_reward", False)
         if sandbox_url:
             sandbox_manager = multiprocessing.Manager()
             # Create a semaphore to control concurrent access to the sandbox
@@ -137,9 +139,13 @@ def load_reward_manager(
                 sandbox_fusion_url=sandbox_url,
                 concurrent_semaphore=_concurrent_semaphore,
                 memory_limit_mb=memory_limit_mb,
+                use_format_reward=use_format_reward
             )
         else:
-            final_compute_score = default_compute_score
+            final_compute_score = partial(
+                default_compute_score,
+                use_format_reward=use_format_reward
+            )
 
     # Instantiate and return the reward manager with the specified parameters
     return reward_manager_cls(

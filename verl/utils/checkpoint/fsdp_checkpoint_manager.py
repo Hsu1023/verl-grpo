@@ -275,7 +275,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 except Exception:
                     # if the generation config isn't available, we don't save it
                     pass
-
+                
             model_config.save_pretrained(hf_config_tokenizer_path)
             if self.processing_class is not None:
                 self.processing_class.save_pretrained(hf_config_tokenizer_path)
@@ -289,7 +289,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             # If we have a custom model, we copy the file defining it in the folder and set the attributes so it can be
             # loaded from the Hub.
             if hasattr(model_config, "auto_map"):
-                custom_object_save(unwrap_model, hf_config_tokenizer_path, config=model_config)
+                auto_cls = getattr(unwrap_model, "_auto_class", None)
+                if auto_cls is not None:
+                    custom_object_save(unwrap_model, hf_config_tokenizer_path, config=model_config)
 
             # Also save runtime FSDP config
             fsdp_config_path = os.path.join(local_path, "fsdp_config.json")

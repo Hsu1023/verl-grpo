@@ -38,6 +38,14 @@ class LogprobsProcessor:
     conf_group_list: Optional[deque]
     conf_group_size: int
     conf_threshold: Optional[float]
+    
+    accumulated_token_num: int = 0
+    
+    probe_max: Optional[float] = -1.0
+    probe_min: Optional[float] = -1.0
+    
+    probe_stop_token_num: int = -1
+    probe_stop_has_tested: bool = False
 
     @classmethod
     def from_new_request(
@@ -64,7 +72,21 @@ class LogprobsProcessor:
             conf_grouped    = 0.0
             conf_group_list = None
             conf_list       = None
-            
+        
+        # assert 0, (request.sampling_params, request.sampling_params.extra_args, request.sampling_params.extra_args.get("probe_max", -1.0), request.sampling_params.extra_args.get("probe_min", -1.0), request.sampling_params.extra_args.get("probe_stop_token_num", -1))
+        if hasattr(request.sampling_params, "extra_args") \
+            and request.sampling_params.extra_args is not None \
+            and request.sampling_params.extra_args.get("probe_max", -1.0) >= 0 \
+            and request.sampling_params.extra_args.get("probe_stop_token_num", -1) > 0:
+                probe_max = request.sampling_params.extra_args.get("probe_max", -1.0)
+                probe_min = request.sampling_params.extra_args.get("probe_min", -1.0)
+                probe_stop_token_num = request.sampling_params.extra_args.get("probe_stop_token_num", -1)
+                # logger.info(f"Probe logits range: max {probe_max}, min {probe_min}")
+                # assert 0, (probe_max, probe_min, probe_stop_token_num)
+        else:
+            probe_max = -1.0
+            probe_min = -1.0
+            probe_stop_token_num = -1
         # import ipdb; ipdb.set_trace()
     
         return cls(
@@ -81,6 +103,10 @@ class LogprobsProcessor:
             conf_list=conf_list,
             conf_threshold=conf_threshold,
             conf_group_list=conf_group_list,
+            
+            probe_max=probe_max,
+            probe_min=probe_min,
+            probe_stop_token_num=probe_stop_token_num,
         )
         
     ##
@@ -98,6 +124,119 @@ class LogprobsProcessor:
         # if ret:
         #     print(f"Early stopping triggered: conf {self.conf_grouped} / {len(self.conf_group_list):.4f} < threshold {self.conf_threshold} (window size {len(self.conf_group_list)} / {self.conf_group_size})")
         return ret
+    
+    def check_probe_stop(self, probe_logits: List[float], new_token_num: int) -> bool:
+        """Return True if the probe logits trigger early stopping."""
+        # def distribution(self, r, c_in=0.8, c_out=0.2):
+        #     import random
+        #     assert 0.0 <= r <= 1.0
+
+        #     a = self.probe_min   # e.g. 0.25
+        #     b = self.probe_max   # e.g. 0.75
+        #     if a < 0 or b < 0:
+        #         return True
+        #     B = b - a            # band width
+
+        #     # 1) 计算 Beta(2,2) 形状 bump
+        #     if r < a or r > b:
+        #         bump = 0.0
+        #     else:
+        #         u = (r - a) / B          # u in [0,1]
+        #         bump = 4.0 * u * (1.0 - u)  # Beta(2,2) style, in [0,1]
+
+        #     # 2) φ(r) = c_out + c_in * bump
+        #     phi = c_out + c_in * bump
+
+        #     # 3) μ = ∫_0^1 φ(r) dr = c_out + (2/3) * B * c_in
+        #     mu = c_out + (2.0 / 3.0) * B * c_in
+
+        #     # 4) 归一化到 E[p] = 0.5
+        #     alpha = 0.5 / mu
+        #     p = alpha * phi
+
+        #     # 5) 安全起见 clip 一下
+        #     if p < 0.0:
+        #         p = 0.0
+        #     elif p > 1.0:
+        #         p = 1.0
+                
+        #     ret = not (random.random() < p)
+                
+        #     # assert not ret, f"Probe early stopping triggered at token {self.accumulated_token_num} with probe logit {r:.4f}, range ({self.probe_min}, {self.probe_max}), p value {p}"
+
+        #     return ret
+        
+        def distribution(self, r, m=0.2):
+            
+            a = self.probe_min   # e.g. 0.12
+            b = self.probe_max   # e.g. 0.36
+            # -1是不进行early_exit
+            if a < 0 or b < 0:
+                return False
+            
+            import random
+            assert 0.0 <= r <= 1.0
+            m = 1-m
+
+
+            
+            # 如果区间非法，退化为 p=0.5
+            if a >= b:
+                return (random.random() < m)
+
+            B = b - a
+
+            # 理论上要求 B <= 0.75，否则下面的 p_out 可能为负
+            # 对你 25%-75% 这种用法，通常 B 会 < 0.75
+            if B > 0.75:
+                B = 0.75  # 或者直接 fallback
+
+            # K = ∫ bump(r) dr
+            K = (2.0 / 3.0) * B
+
+            # 期望约束: 0.5 = p_out + (1 - p_out)*K
+            # => p_out = (0.5 - K) / (1 - K)
+            p_out = (m - K) / (1.0 - K)
+
+            # numerical safety
+            if p_out < 0.0:
+                p_out = 0.0
+            elif p_out > 1.0:
+                p_out = 1.0
+
+            # 计算 p(r)
+            if r < a or r > b:
+                p = p_out
+            else:
+                u = (r - a) / B    # in [0,1]
+                bump = 4.0 * u * (1.0 - u)   # in [0,1]
+                p = p_out + (1.0 - p_out) * bump
+
+            # p 肯定在 [p_out, 1] ⊆ [0,1]，不需要 clip 了
+
+            # 注意：如果你想 "区间内 True 概率大"
+            # ret=True 的概率就应该是 p，而不是 1-p
+            ret = (random.random() < p)
+
+            return not ret
+
+            
+        if not hasattr(self, 'probe_max') or not hasattr(self, 'probe_min'):
+            return False
+        
+        self.accumulated_token_num += new_token_num
+        
+        assert len(probe_logits) == 1
+        
+        if not self.probe_stop_has_tested and self.accumulated_token_num >= self.probe_stop_token_num:
+            self.probe_stop_has_tested = True
+            ret = distribution(self, probe_logits[0])
+            # assert 0, (self.accumulated_token_num, probe_logits[0], self.probe_min, self.probe_max, ret)
+        else:
+            ret = False
+        # assert 0, (probe_logits[0], self.probe_min, self.probe_max, ret)
+        
+        return ret # ret is True means stop generation
 
     def _update_sample_logprobs(self, logprobs_lists: LogprobsLists) -> None:
         """Update with sample logprobs from EngineCore.

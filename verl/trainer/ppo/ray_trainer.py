@@ -30,6 +30,8 @@ from typing import Optional
 import numpy as np
 import ray
 import torch
+
+import psutil
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -998,6 +1000,10 @@ class RayPPOTrainer:
         )
         next_step_profile = False
         self.current_conf = None
+        # self.probe_max = 1.0
+        # self.probe_min = 0.0
+        self.probe_max = self.config.trainer.get("probe_max_init_value", 1.0)
+        self.probe_min = self.config.trainer.get("probe_min_init_value", 0.0)
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1023,6 +1029,15 @@ class RayPPOTrainer:
                 gen_batch.meta_info["global_steps"] = self.global_steps
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                 gen_batch.meta_info['current_conf'] = self.current_conf
+                if self.config.trainer.get("probe_warmup_steps", -1) >= 0 and self.global_steps >= self.config.trainer.get("probe_warmup_steps", -1):
+                    gen_batch.meta_info['probe_max'] = self.probe_max
+                    gen_batch.meta_info['probe_min'] = self.probe_min
+                    gen_batch.meta_info['probe_stop_token_num'] = self.config.trainer.get("probe_stop_token_num", -1)
+                else:
+                    gen_batch.meta_info['probe_max'] = -1.0
+                    gen_batch.meta_info['probe_min'] = -1.0
+                    gen_batch.meta_info['probe_stop_token_num'] = -1
+                
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -1122,7 +1137,8 @@ class RayPPOTrainer:
                     metrics.update(compute_logp_metrics(batch=batch))
                     self.current_conf = metrics.get("logp/percentile", None)
                     metrics.update(compute_stop_metrics(batch=batch)) ## conf
-
+                    
+                    
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
@@ -1166,13 +1182,41 @@ class RayPPOTrainer:
                         metrics.update(critic_output_metrics)
 
                     # implement critic warmup
+                    # assert 0, (self.actor_rollout_wg)
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
+                            batch.meta_info["probe_stop_token_num"] = self.config.trainer.get("probe_stop_token_num", -1)
+                            # assert 0, self.config.trainer.get("probe_stop_token_num", -1)
+                            if len(batch) == 0:
+                                print("Warning: empty batch after filtering, skip actor update")
+                                continue
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+                         
+
+                        def log_mem(prefix=""):
+                            p = psutil.Process(os.getpid())
+                            rss_gb = p.memory_info().rss / (1024 ** 3)
+                            if torch.cuda.is_available():
+                                gpu_alloc_gb = torch.cuda.max_memory_allocated() / (1024 ** 3)
+                                gpu_resv_gb  = torch.cuda.max_memory_reserved() / (1024 ** 3)
+                            else:
+                                gpu_alloc_gb = gpu_resv_gb = 0.0
+
+                            print(f"[MEM] {prefix} | CPU RSS={rss_gb:.2f} GB | "
+                                f"GPU alloc={gpu_alloc_gb:.2f} GB | GPU resv={gpu_resv_gb:.2f} GB",
+                                flush=True)
+                        
+                        log_mem(f"step {self.global_steps} post actor update")
+                        
+                        momentum = self.config.trainer.get("probe_momentum", 0.95)
+                        # keep 50%, which means 75 25 percentile
+                        self.probe_max = momentum * self.probe_max + (1 - momentum) * metrics.get("actor/probe_logits_q75", 1.0)
+                        self.probe_min = momentum * self.probe_min + (1 - momentum) * metrics.get("actor/probe_logits_q25", 0.0)
+                        print(f"probe_max: {self.probe_max}, probe_min: {self.probe_min}, currect_probe_max: {metrics.get('actor/probe_logits_q90', -1.0)}, currect_probe_min: {metrics.get('actor/probe_logits_q10', -1.0)}")
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)

@@ -138,3 +138,7 @@ merged_checkpoints/
 *.out
 *.err
 *.png
+
+qwen_probe/**
+!qwen_probe/**/
+!qwen_probe/**/*.py

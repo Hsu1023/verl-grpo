@@ -24,6 +24,7 @@ def default_compute_score(
     sandbox_fusion_url=None,
     concurrent_semaphore=None,
     memory_limit_mb=None,
+    use_format_reward=False,
 ):
     """Compute the score for a given solution based on the data source.
 
@@ -52,12 +53,19 @@ def default_compute_score(
         #     from . import math_dapo
         #     res = math_dapo.compute_score(solution_str, ground_truth)
         # else:
+        # if extra_info:
+        #     import json
+        #     extra_info = json.loads(extra_info)
+        # else:
+        #     extra_info = {}
+        # use_format_reward = extra_info.get("use_format_reward", False)
+        
         if 'dapo' in data_source.lower():
             from . import grpo
-            res = grpo.compute_score(solution_str, ground_truth)
+            res = grpo.compute_score(solution_str, ground_truth, use_format_reward=use_format_reward)
         else:
             from . import math_reward
-            res = math_reward.compute_score(solution_str, ground_truth)
+            res = math_reward.compute_score(solution_str, ground_truth, use_format_reward=use_format_reward)
         # if res['acc'] < 1:
         #     print(f"Wrong: {res['pred']} | GT: {ground_truth}")
     elif data_source == "openai/gsm8k":

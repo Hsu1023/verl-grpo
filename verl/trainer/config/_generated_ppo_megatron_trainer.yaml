@@ -91,6 +91,8 @@ actor_rollout_ref:
       load_contents: ${.save_contents}
       async_save: false
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
+    use_probe: false
+    probe_loss_coef: 1.0
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:global_profiler.tool,null}

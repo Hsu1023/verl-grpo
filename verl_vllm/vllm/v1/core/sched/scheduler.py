@@ -870,6 +870,8 @@ class Scheduler(SchedulerInterface):
         num_scheduled_tokens = scheduler_output.num_scheduled_tokens
         pooler_outputs = model_runner_output.pooler_output
         num_nans_in_logits = model_runner_output.num_nans_in_logits
+        
+        probe_logits = model_runner_output.probe_logits
 
         outputs: dict[int, list[EngineCoreOutput]] = defaultdict(list)
         spec_decoding_stats: Optional[SpecDecodingStats] = None
@@ -934,12 +936,16 @@ class Scheduler(SchedulerInterface):
                 else:
                     stopped_preempted_reqs.add(request)
 
+            
             # Extract sample logprobs if needed.
             if request.sampling_params is not None \
                 and request.sampling_params.logprobs is not None and logprobs:
                 # NOTE: once we support N tokens per step (spec decode),
                 # the outer lists can be of length > 1.
                 new_logprobs = logprobs.slice(req_index, req_index + 1)
+                
+                new_probe_logits = probe_logits[req_index] \
+                    if probe_logits is not None else None
 
             if new_token_ids and self.structured_output_manager.should_advance(
                     request):
@@ -971,6 +977,8 @@ class Scheduler(SchedulerInterface):
                         kv_transfer_params=kv_transfer_params,
                         trace_headers=request.trace_headers,
                         num_cached_tokens=request.num_cached_tokens,
+                        
+                        probe_logits=new_probe_logits,
                     ))
             else:
                 # Invariant: EngineCore returns no partial prefill outputs.

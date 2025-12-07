@@ -37,6 +37,7 @@ class OptimizerConfig(BaseConfig):
     _mutable_fields = {"clip_grad", "total_training_steps", "lr_warmup_steps"}
 
     lr: float = 1e-3
+    probe_lr: Optional[float] = None
     lr_warmup_steps_ratio: float = 0.0
     total_training_steps: int = -1
     weight_decay: float = 0.01
@@ -59,6 +60,7 @@ class FSDPOptimizerConfig(OptimizerConfig):
 
     Args:
         lr (float): Learning rate.
+        probe_lr (Optional[float]): Optional LR override for probe_head parameters.
         min_lr_ratio (Optional[float]): Minimum LR ratio for cosine schedule.
         warmup_style (str): LR warmup style: "constant" or "cosine".
         num_cycles (float): Number of cosine cycles in LR schedule.

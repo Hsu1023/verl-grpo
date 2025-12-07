@@ -14,7 +14,7 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
 
-def compute_score(solution_str, ground_truth) -> float:
+def compute_score(solution_str, ground_truth, use_format_reward) -> float:
     retval = 0.0
     # if "\left( 3, \frac{\pi}{2} \right)" or "\\left( 3, \\frac{" in ground_truth:
     #     assert 0, solution_str + " " + ground_truth
@@ -32,10 +32,11 @@ def compute_score(solution_str, ground_truth) -> float:
         print(e)
         raise e
     
-
+    # assert 0, (retval, format_score, answer, ground_truth)
     # return retval
+    score = retval + (1.0 if use_format_reward else 0.0) * format_score
     return {
-        "score": retval + format_score,
+        "score": score,
         "acc": retval,
         "pred": answer,
     }

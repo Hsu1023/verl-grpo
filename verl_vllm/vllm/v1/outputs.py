@@ -113,6 +113,8 @@ class ModelRunnerOutput:
 
     # req_id -> num_nans_in_logits
     num_nans_in_logits: Optional[dict[str, int]] = None
+    
+    probe_logits: Optional[list[float]] = None
 
 
 # ModelRunnerOutput wrapper for async scheduling.

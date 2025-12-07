@@ -117,6 +117,8 @@ class EngineCoreOutput(
     trace_headers: Optional[Mapping[str, str]] = None
     # The number of tokens with prefix cache hits.
     num_cached_tokens: int = 0
+    
+    probe_logits: Optional[list[float]] = None
 
     @property
     def finished(self) -> bool:
