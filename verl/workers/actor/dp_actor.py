@@ -282,8 +282,12 @@ class DataParallelPPOActor(BasePPOActor):
                     extra_args["probe_labels"] = (
                         acc_labels if acc_labels is not None else micro_batch["token_level_scores"].sum(dim=-1) > 1e-6
                     )
+                    # assert 0, (extra_args["probe_labels"], acc_labels)
+                    assert extra_args["probe_labels"].shape[0] > 0, "Probe labels cannot be empty."
                     scores = micro_batch["token_level_scores"].sum(dim=-1)
                     assert torch.all(~((scores > 0.0) & (scores < 1.0))), scores
+                    
+                    extra_args["early_exit"] = micro_batch.get("early_exit", None)
 
                 
                 output = self.actor_module(
@@ -434,7 +438,7 @@ class DataParallelPPOActor(BasePPOActor):
         
         # print(data.batch['token_level_scores'].sum(dim=-1), data.batch['token_level_rewards'].sum(dim=-1), data.batch['advantages'])
         # print(data.batch.keys())
-
+        # print(data.batch['early_exit'])
         select_keys = [
             "responses",
             "response_mask",
@@ -447,6 +451,7 @@ class DataParallelPPOActor(BasePPOActor):
         ]
         if self.config.use_probe:
             select_keys.append("token_level_scores")
+            select_keys.append("early_exit")
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         if self.config.tis_imp_ratio_cap > 0:
@@ -467,10 +472,15 @@ class DataParallelPPOActor(BasePPOActor):
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         mini_batches = data.split(self.config.ppo_mini_batch_size)
+        
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
         metrics = {}
+        probe_accs = []
+        probe_logits_list = []
+        positive_probe_logits_list = []
+        negative_probe_logits_list = []
         for _ in range(self.config.ppo_epochs):
             for batch_idx, mini_batch in enumerate(mini_batches):
                 if self.config.use_dynamic_bsz:
@@ -511,6 +521,7 @@ class DataParallelPPOActor(BasePPOActor):
                     if entropy_coeff != 0:
                         calculate_entropy = True
                     
+                    assert len(model_inputs['acc']) == model_inputs['early_exit'].shape[0]
                     # assert 0, self.config.use_probe
                     entropy, log_prob, probe_logits, probe_loss = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy,
@@ -587,23 +598,43 @@ class DataParallelPPOActor(BasePPOActor):
                                 probe_labels = acc_labels
                             else:
                                 probe_labels = model_inputs["token_level_scores"].sum(dim=-1) > 1e-6
+                            if model_inputs.get("early_exit") is not None:
+                                early_exit = ~(model_inputs["early_exit"].bool())
+                                probe_labels = probe_labels[early_exit]
 
                             probe_preds = (last_logits > 0.5).float()
-                            micro_batch_metrics["actor/probe_acc"] = (
-                                (probe_preds == probe_labels.float()).float().mean().cpu().item()
-                            )
+                            # micro_batch_metrics["actor/probe_acc"] = (
+                            #     (probe_preds == probe_labels.float()).float().mean().cpu().item()
+                            # )
+                            probe_acc = (probe_preds == probe_labels.float()).float().tolist()
+                            if len(probe_labels) > 0:
+                                probe_accs.extend(probe_acc)
+                            # if have stop logits, add it to the list
+                            # if probe_logits.shape[0] > 0:
+                                probe_logits_list.extend(stop_logits.tolist())
+                                positive_probe_logits = stop_logits[probe_labels]
+                                negative_probe_logits = stop_logits[~probe_labels]
+                                if positive_probe_logits.shape[0] > 0:
+                                    positive_probe_logits_list.extend(positive_probe_logits.tolist())
+                                if negative_probe_logits.shape[0] > 0:
+                                    negative_probe_logits_list.extend(negative_probe_logits.tolist())
+                                
+                            
                         
                         
-                            # get 90%, 75%, 50%, 25%, 10% quantile logits
-                            quantiles = torch.quantile(
-                                    stop_logits.detach().float(),
-                                    torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9], device=stop_logits.device),
-                                )
-                            micro_batch_metrics["actor/probe_logits_q10"] = quantiles[0].item()
-                            micro_batch_metrics["actor/probe_logits_q25"] = quantiles[1].item()
-                            micro_batch_metrics["actor/probe_logits_q50"] = quantiles[2].item()
-                            micro_batch_metrics["actor/probe_logits_q75"] = quantiles[3].item()
-                            micro_batch_metrics["actor/probe_logits_q90"] = quantiles[4].item()
+                            # # get 90%, 75%, 50%, 25%, 10% quantile logits
+                            # try:
+                            #     quantiles = torch.quantile(
+                            #             stop_logits.detach().float(),
+                            #             torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9], device=stop_logits.device),
+                            #         )
+                            #     micro_batch_metrics["actor/probe_logits_q10"] = quantiles[0].item()
+                            #     micro_batch_metrics["actor/probe_logits_q25"] = quantiles[1].item()
+                            #     micro_batch_metrics["actor/probe_logits_q50"] = quantiles[2].item()
+                            #     micro_batch_metrics["actor/probe_logits_q75"] = quantiles[3].item()
+                            #     micro_batch_metrics["actor/probe_logits_q90"] = quantiles[4].item()
+                            # except:
+                            #     assert 0, early_exit
                         
                         # print(f"Probe loss: {probe_loss.detach().item()}, weight: {probe_weight}")
                         # assert 0, probe_loss.detach().item()
@@ -624,4 +655,48 @@ class DataParallelPPOActor(BasePPOActor):
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
+        if len(probe_accs) > 0:
+            with torch.no_grad():
+                avg_probe_acc = sum(probe_accs) / len(probe_accs)
+                metrics["actor/probe_acc"] = avg_probe_acc
+                print('probe_logits_list', probe_logits_list)
+                quantiles = torch.quantile(
+                        torch.as_tensor(probe_logits_list),
+                        torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9]),
+                    )
+                metrics["actor/probe_logits_q10"] = quantiles[0].item()
+                metrics["actor/probe_logits_q25"] = quantiles[1].item()
+                metrics["actor/probe_logits_q50"] = quantiles[2].item()
+                metrics["actor/probe_logits_q75"] = quantiles[3].item()
+                metrics["actor/probe_logits_q90"] = quantiles[4].item()
+                if len(positive_probe_logits_list) > 0:
+                    pos_quantiles = torch.quantile(
+                            torch.as_tensor(positive_probe_logits_list),
+                            torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9]),
+                        )
+                    metrics["actor/pos_probe_logits_q10"] = pos_quantiles[0].item()
+                    metrics["actor/pos_probe_logits_q50"] = pos_quantiles[2].item()
+                    metrics["actor/pos_probe_logits_q90"] = pos_quantiles[4].item()
+                else:
+                    metrics["actor/pos_probe_logits_q10"] = -1
+                    metrics["actor/pos_probe_logits_q50"] = -1
+                    metrics["actor/pos_probe_logits_q90"] = -1
+                if len(negative_probe_logits_list) > 0:
+                    neg_quantiles = torch.quantile(
+                            torch.as_tensor(negative_probe_logits_list),
+                            torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9]),
+                        )
+                    metrics["actor/neg_probe_logits_q10"] = neg_quantiles[0].item()
+                    metrics["actor/neg_probe_logits_q50"] = neg_quantiles[2].item()
+                    metrics["actor/neg_probe_logits_q90"] = neg_quantiles[4].item()
+                else:
+                    metrics["actor/neg_probe_logits_q10"] = -1
+                    metrics["actor/neg_probe_logits_q50"] = -1
+                    metrics["actor/neg_probe_logits_q90"] = -1
+                if (len(positive_probe_logits_list) + len(negative_probe_logits_list)) > 0:
+                    metrics['actor/pos_label_ratio'] = len(positive_probe_logits_list) / (len(positive_probe_logits_list) + len(negative_probe_logits_list))
+                    metrics['actor/neg_label_ratio'] = len(negative_probe_logits_list) / (len(positive_probe_logits_list) + len(negative_probe_logits_list))
+            #quantile
+        # assert len(probe_accs) == 0 or max(probe_accs) > 0.1, (probe_accs,data.batch['early_exit'])
+            
         return metrics

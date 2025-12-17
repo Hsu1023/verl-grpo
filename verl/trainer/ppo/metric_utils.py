@@ -150,7 +150,8 @@ def compute_stop_metrics(batch: DataProto) -> dict[str, Any]:
     # print(stop_reasons)
     if stop_reasons is None:
         return {}
-
+    # assert 0, stop_reasons
+    print('earlt_stop', stop_reasons)
     return {"early_stop/ratio": stop_reasons.float().mean().item()}
 
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str, Any]:
@@ -195,8 +196,12 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     response_length = response_info["response_length"]
 
     aborted_mask = (response_length == 0).bool()
+    early_exit_mask = batch.batch.get('early_exit', None)
+    if early_exit_mask is not None:
+        aborted_mask = aborted_mask | (early_exit_mask.bool())
+    
     non_aborted_mask = ~aborted_mask
-
+    
     non_aborted_sequence_score = sequence_score[non_aborted_mask]
     non_aborted_sequence_reward = sequence_reward[non_aborted_mask]
 
@@ -232,6 +237,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     else:
         raise ValueError("All samples are aborted, this should not happen.")
 
+    # print('response_length', response_length)
     metrics = {
         # score
         "critic/score/mean": score_mean,

@@ -944,7 +944,7 @@ class Scheduler(SchedulerInterface):
                 # the outer lists can be of length > 1.
                 new_logprobs = logprobs.slice(req_index, req_index + 1)
                 
-                new_probe_logits = probe_logits[req_index] \
+            new_probe_logits = probe_logits[req_index] \
                     if probe_logits is not None else None
 
             if new_token_ids and self.structured_output_manager.should_advance(

@@ -11,7 +11,7 @@ args = parse.parse_args()
 if args.folder is not None:
     folder_path = args.folder
 else:
-    folder_path = '/home/yichen/verl/checkpoints/qwen3-1.7b_grpo_1e-6_gsm8k_4k_lr'
+    folder_path = '/u/haoboxu/work/verl/checkpoints/qwen3-4b_base_grpo_1e-6_math4_16k_dapo'
 path = f'{folder_path}/train.log'
 
 
@@ -48,7 +48,7 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
 
         if match:
             value = float(match.group(2))
-            assert not (match.group(1) in matches and 'grpo_' in content), f"Duplicate step {match.group(1)} for {content}"
+            # assert not (match.group(1) in matches and 'grpo_' in content), f"Duplicate step {match.group(1)} for {content}"
             matches[match.group(1)] = value
     if len(matches) == 0:
         continue

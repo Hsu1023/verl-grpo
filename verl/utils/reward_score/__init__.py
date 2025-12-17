@@ -25,6 +25,7 @@ def default_compute_score(
     concurrent_semaphore=None,
     memory_limit_mb=None,
     use_format_reward=False,
+    # early_exit=False,
 ):
     """Compute the score for a given solution based on the data source.
 

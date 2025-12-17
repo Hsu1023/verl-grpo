@@ -53,6 +53,7 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
         input_ids=None,
         attention_mask=None,
         probe_labels: Optional[torch.Tensor] = None,
+        early_exit: Optional[torch.Tensor] = None,
         probe_stop_token_num: int = -1,
         # compute_probe: bool = False,
         **kwargs,
@@ -73,6 +74,9 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
         # if compute_probe or probe_labels is not None:
             # last_hidden: [bs, seq_len, hidden_size]
         last_hidden = outputs.hidden_states[-1]
+        
+        if early_exit is not None:
+            early_exit = ~(early_exit.bool())
 
         # 例如只对最后一个非 padding token 做 probe
         if attention_mask is not None:
@@ -83,13 +87,18 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
             ).squeeze(1)  # [bs, hidden]
         else:
             probe_input = last_hidden[:, -1, :]       # [bs, hidden]
+        if early_exit is not None:
+            probe_input = probe_input[early_exit]
         if probe_stop_token_num > 0:
             # 如果指定的位置越过 last valid，则回退到 last valid；否则取指定位置
-            stop_pos = torch.full_like(seq_len, probe_stop_token_num)
+            stop_pos = torch.full_like(seq_len, probe_stop_token_num - 1)
             stop_pos = torch.minimum(stop_pos, seq_len)
+            print('stop pos', stop_pos)
             stop_probe = last_hidden.gather(
                 1, stop_pos.view(-1, 1, 1).expand(-1, 1, last_hidden.size(-1))
             ).squeeze(1)
+            if early_exit is not None:
+                stop_probe = stop_probe[early_exit]
             probe_input = torch.cat([stop_probe, probe_input], dim=0)
             
         probe_input = probe_input.detach()        # 不让 probe_loss 回传到 backbone
@@ -101,12 +110,17 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
             
         if probe_labels is not None:
             probe_labels = probe_labels.float().view(-1)
-            if probe_stop_token_num > 0:
-                probe_labels = torch.cat([probe_labels, probe_labels], dim=0)
-            probe_loss = F.binary_cross_entropy_with_logits(
-                probe_logits.view(-1),
-                probe_labels,
-            )
+            if early_exit is not None:
+                probe_labels = probe_labels[early_exit]
+            if probe_labels.shape[0] <= 0:
+                probe_loss = None
+            else:
+                if probe_stop_token_num > 0:
+                    probe_labels = torch.cat([probe_labels, probe_labels], dim=0)
+                probe_loss = F.binary_cross_entropy_with_logits(
+                    probe_logits.view(-1),
+                    probe_labels,
+                )
         else:
             probe_loss = None
             

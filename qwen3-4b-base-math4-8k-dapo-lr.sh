@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=2
 #SBATCH --mem=300G
-#SBATCH --time=24:00:00
-#SBATCH -J qwen3-4b_base_grpo_1e-6_math4_16k_dapo
+#SBATCH --time=48:00:00
+#SBATCH -J qwen3-4b_base_grpo_1e-6_math4_16k_dapo_lr
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
 
@@ -21,7 +21,7 @@ export HYDRA_FULL_ERROR=1
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
 save_path=$BASE_PATH/output
-exp_name=qwen3-4b_base_grpo_1e-6_math4_16k_dapo
+exp_name=qwen3-4b_base_grpo_1e-6_math4_16k_dapo_lr
 project_name='verl_grpo_example_gsm8k'
 
 aime2024_path=$BASE_PATH/data/aime2024/test.parquet
@@ -50,7 +50,7 @@ conda activate verl
 
 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=2 \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     "data.val_files=$VAL_FILES" \
@@ -69,17 +69,19 @@ python3 -m verl.trainer.main_ppo \
     +reward_model.use_format_reward=False \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \
+    +trainer.probe_max_init_value=0.7 \
+    +trainer.probe_min_init_value=0.0 \
     +trainer.probe_warmup_steps=10000 \
     +trainer.probe_stop_token_num=-1 \
-    +trainer.probe_max_init_value=0.5324 \
-    +trainer.probe_min_init_value=0.3567 \
+    +trainer.probe_max_init_value=1 \
+    +trainer.probe_min_init_value=0 \
     actor_rollout_ref.actor.optim.probe_lr=0.01 \
     actor_rollout_ref.actor.probe_loss_coef=1.0 \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.use_probe=True \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=1e-3 \
+    actor_rollout_ref.actor.kl_loss_coef=3e-3 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \

@@ -70,8 +70,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    +trainer.probe_max_init_value=0.3917 \
-    +trainer.probe_min_init_value=0.3706 \
+    +trainer.probe_max_init_value=0.3993 \
+    +trainer.probe_min_init_value=0.3773 \
     "+algorithm.early_exit_grad=False" \
     actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base \
     +reward_model.use_format_reward=False \

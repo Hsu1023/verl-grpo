@@ -1802,6 +1802,7 @@ class ChatCompletionResponse(OpenAIBaseModel):
     prompt_token_ids: Optional[list[int]] = None
     kv_transfer_params: Optional[dict[str, Any]] = Field(
         default=None, description="KVTransfer parameters.")
+    probe_logits: Optional[list[float]] = None
 
 
 class DeltaMessage(OpenAIBaseModel):
@@ -1830,6 +1831,7 @@ class ChatCompletionStreamResponse(OpenAIBaseModel):
     usage: Optional[UsageInfo] = Field(default=None)
     # not part of the OpenAI spec but for tracing the tokens
     prompt_token_ids: Optional[list[int]] = None
+    probe_logits: Optional[list[float]] = None
 
 
 class TranscriptionResponseStreamChoice(OpenAIBaseModel):

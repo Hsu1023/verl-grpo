@@ -249,6 +249,11 @@ class RequestState:
         else:
             prompt_logprobs = self.logprobs_processor.prompt_logprobs
 
+        # Attach probe logits to each completion output for easy access.
+        if probe_logits is not None:
+            for output in outputs:
+                output.probe_logits = probe_logits
+
         return RequestOutput(
             request_id=request_id,
             prompt=self.prompt,

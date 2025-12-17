@@ -239,6 +239,7 @@ def compute_advantage(
 
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         # advantages, returns
+        # assert 0, data.batch['early_exit']
         if config.get("cutoff", False):
             data = core_algos.compute_grpo_outcome_advantage_cutoff(
                 token_level_rewards=data.batch["token_level_rewards"],
@@ -1033,10 +1034,12 @@ class RayPPOTrainer:
                     gen_batch.meta_info['probe_max'] = self.probe_max
                     gen_batch.meta_info['probe_min'] = self.probe_min
                     gen_batch.meta_info['probe_stop_token_num'] = self.config.trainer.get("probe_stop_token_num", -1)
+                    gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
                 else:
                     gen_batch.meta_info['probe_max'] = -1.0
                     gen_batch.meta_info['probe_min'] = -1.0
                     gen_batch.meta_info['probe_stop_token_num'] = -1
+                    gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
                 
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
@@ -1216,7 +1219,7 @@ class RayPPOTrainer:
                         # keep 50%, which means 75 25 percentile
                         self.probe_max = momentum * self.probe_max + (1 - momentum) * metrics.get("actor/probe_logits_q75", 1.0)
                         self.probe_min = momentum * self.probe_min + (1 - momentum) * metrics.get("actor/probe_logits_q25", 0.0)
-                        print(f"probe_max: {self.probe_max}, probe_min: {self.probe_min}, currect_probe_max: {metrics.get('actor/probe_logits_q90', -1.0)}, currect_probe_min: {metrics.get('actor/probe_logits_q10', -1.0)}")
+                        print(f"probe_max: {self.probe_max}, probe_min: {self.probe_min}, currect_probe_max: {metrics.get('actor/probe_logits_q75', -1.0)}, currect_probe_min: {metrics.get('actor/probe_logits_q25', -1.0)}")
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)

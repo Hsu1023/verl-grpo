@@ -48,34 +48,37 @@ mkdir -p $BASE_PATH/checkpoints/$exp_name
 
 export VERL_AUTO_PADDING=1
 
+    # +algorithm.cutoff=True \
 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=1 \
     trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     "data.val_files=$VAL_FILES" \
-    data.train_batch_size=2 \
+    data.train_batch_size=4 \
     actor_rollout_ref.actor.ppo_mini_batch_size=2 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     data.max_prompt_length=500 \
-    data.max_response_length=7500 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=8000 \
+    data.max_response_length=5500 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=6000 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     "+algorithm.early_exit_grad=False" \
     actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base \
     +reward_model.use_format_reward=False \
-    +algorithm.cutoff=True \
+    +trainer.probe_m=0.5 \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \
     +trainer.probe_warmup_steps=0 \
     +trainer.probe_stop_token_num=512 \
     actor_rollout_ref.actor.optim.probe_lr=0.1 \
     actor_rollout_ref.actor.probe_loss_coef=5.0 \
-    +trainer.probe_momentum=1.0 \
+    +trainer.probe_max_init_value=0.7 \
+    +trainer.probe_min_init_value=0.0 \
+    +trainer.probe_momentum=0.975 \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.use_probe=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -88,7 +91,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
-    actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \

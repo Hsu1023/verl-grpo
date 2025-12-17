@@ -70,7 +70,9 @@ def eval(llm, datasets, args):
             for j, ex in enumerate(batch):
                 gens = [o.text for o in outputs[j].outputs]
                 gen_length = [len(o.text) for o in outputs[j].outputs]
-                score = [compute_score(gen, ex['reward_model']['ground_truth'])['acc'] for gen in gens]
+                score = [compute_score(gen, ex['reward_model']['ground_truth'], False)['acc'] for gen in gens]
+                # probe_conf = [compute_score(gen, ex['reward_model']['ground_truth'])['probe_confidence'] for gen in gens]
+                assert 0, outputs[j].outputs[0]
                 pass_scores.append(max(score))
                 avg_scores += score
                 lengths += gen_length

@@ -565,6 +565,12 @@ class OpenAIServingChat(OpenAIServing):
                     if res.encoder_prompt_token_ids is not None:
                         num_prompt_tokens += len(res.encoder_prompt_token_ids)
 
+                probe_logits_value = (res.probe_logits
+                                      if res.finished and res.probe_logits
+                                      is not None else None)
+                probe_kwargs = ({"probe_logits": probe_logits_value}
+                                if probe_logits_value is not None else {})
+
                 # We need to do it here, because if there are exceptions in
                 # the result_generator, it needs to be sent as the FIRST
                 # response (by the try...catch).
@@ -595,7 +601,8 @@ class OpenAIServingChat(OpenAIServing):
                             model=model_name,
                             prompt_token_ids=(res.prompt_token_ids
                                               if request.return_token_ids else
-                                              None))
+                                              None),
+                            **probe_kwargs)
 
                         # if continuous usage stats are requested, add it
                         if include_continuous_usage:
@@ -629,7 +636,8 @@ class OpenAIServingChat(OpenAIServing):
                                     object=chunk_object_type,
                                     created=created_time,
                                     choices=[choice_data],
-                                    model=model_name)
+                                    model=model_name,
+                                    **probe_kwargs)
                                 if include_continuous_usage:
                                     chunk.usage = UsageInfo(
                                         prompt_tokens=num_prompt_tokens,
@@ -1067,7 +1075,8 @@ class OpenAIServingChat(OpenAIServing):
                         object=chunk_object_type,
                         created=created_time,
                         choices=[choice_data],
-                        model=model_name)
+                        model=model_name,
+                        **probe_kwargs)
 
                     # handle usage stats if requested & if continuous
                     if include_continuous_usage:
@@ -1093,13 +1102,14 @@ class OpenAIServingChat(OpenAIServing):
                     final_usage.prompt_tokens_details = PromptTokenUsageInfo(
                         cached_tokens=num_cached_tokens)
 
-                final_usage_chunk = ChatCompletionStreamResponse(
-                    id=request_id,
-                    object=chunk_object_type,
-                    created=created_time,
-                    choices=[],
-                    model=model_name,
-                    usage=final_usage)
+                    final_usage_chunk = ChatCompletionStreamResponse(
+                        id=request_id,
+                        object=chunk_object_type,
+                        created=created_time,
+                        choices=[],
+                        model=model_name,
+                        usage=final_usage,
+                        **probe_kwargs)
                 final_usage_data = (final_usage_chunk.model_dump_json(
                     exclude_unset=True, exclude_none=True))
                 yield f"data: {final_usage_data}\n\n"
@@ -1405,6 +1415,8 @@ class OpenAIServingChat(OpenAIServing):
                 cached_tokens=final_res.num_cached_tokens)
 
         request_metadata.final_usage_info = usage
+        probe_kwargs = ({"probe_logits": final_res.probe_logits}
+                        if final_res.probe_logits is not None else {})
 
         response = ChatCompletionResponse(
             id=request_id,
@@ -1416,6 +1428,7 @@ class OpenAIServingChat(OpenAIServing):
             prompt_token_ids=(final_res.prompt_token_ids
                               if request.return_token_ids else None),
             kv_transfer_params=final_res.kv_transfer_params,
+            **probe_kwargs,
         )
 
         # Log complete response if output logging is enabled

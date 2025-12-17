@@ -46,6 +46,7 @@ class LogprobsProcessor:
     
     probe_stop_token_num: int = -1
     probe_stop_has_tested: bool = False
+    probe_m: float = 0.5  # default value for probe distribution parameter
 
     @classmethod
     def from_new_request(
@@ -81,12 +82,14 @@ class LogprobsProcessor:
                 probe_max = request.sampling_params.extra_args.get("probe_max", -1.0)
                 probe_min = request.sampling_params.extra_args.get("probe_min", -1.0)
                 probe_stop_token_num = request.sampling_params.extra_args.get("probe_stop_token_num", -1)
+                probe_m = request.sampling_params.extra_args.get("probe_m", 0.5)
                 # logger.info(f"Probe logits range: max {probe_max}, min {probe_min}")
                 # assert 0, (probe_max, probe_min, probe_stop_token_num)
         else:
             probe_max = -1.0
             probe_min = -1.0
             probe_stop_token_num = -1
+            probe_m = -1.0
         # import ipdb; ipdb.set_trace()
     
         return cls(
@@ -107,6 +110,7 @@ class LogprobsProcessor:
             probe_max=probe_max,
             probe_min=probe_min,
             probe_stop_token_num=probe_stop_token_num,
+            probe_m=probe_m
         )
         
     ##
@@ -166,7 +170,7 @@ class LogprobsProcessor:
 
         #     return ret
         
-        def distribution(self, r, m=0.2):
+        def distribution(self, r, m=0.5):
             
             a = self.probe_min   # e.g. 0.12
             b = self.probe_max   # e.g. 0.36
@@ -218,7 +222,8 @@ class LogprobsProcessor:
             # ret=True 的概率就应该是 p，而不是 1-p
             ret = (random.random() < p)
 
-            return not ret
+            # return not ret
+            return ret
 
             
         if not hasattr(self, 'probe_max') or not hasattr(self, 'probe_min'):
@@ -230,7 +235,7 @@ class LogprobsProcessor:
         
         if not self.probe_stop_has_tested and self.accumulated_token_num >= self.probe_stop_token_num:
             self.probe_stop_has_tested = True
-            ret = distribution(self, probe_logits[0])
+            ret = distribution(self, probe_logits[0], self.probe_m)
             # assert 0, (self.accumulated_token_num, probe_logits[0], self.probe_min, self.probe_max, ret)
         else:
             ret = False
