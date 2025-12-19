@@ -564,6 +564,7 @@ class DataParallelPPOActor(BasePPOActor):
                             logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
                         )
                         kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        assert 0, (log_prob.shape, ref_log_prob.shape, kl_penalty, agg_loss)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
@@ -699,4 +700,5 @@ class DataParallelPPOActor(BasePPOActor):
             #quantile
         # assert len(probe_accs) == 0 or max(probe_accs) > 0.1, (probe_accs,data.batch['early_exit'])
             
-        return metrics
+        # Also return collected probe logits for downstream components that need the raw values.
+        return metrics, positive_probe_logits_list, negative_probe_logits_list

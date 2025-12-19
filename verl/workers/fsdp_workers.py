@@ -872,7 +872,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             # perform training
             with Timer(name="update_policy", logger=None) as timer:
-                metrics = self.actor.update_policy(data=data)
+                update_policy_output = self.actor.update_policy(data=data)
+                if isinstance(update_policy_output, tuple) and len(update_policy_output) == 3:
+                    metrics, pos_probe_logits_list, neg_probe_logits_list = update_policy_output
+                else:
+                    metrics = update_policy_output
+                    pos_probe_logits_list, neg_probe_logits_list = [], []
             delta_time = timer.last
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
@@ -888,7 +893,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.actor_lr_scheduler.step()
 
             # TODO: here, we should return all metrics
-            output = DataProto(meta_info={"metrics": metrics})
+            non_tensor_batch = {
+                "positive_probe_logits_list": np.array(pos_probe_logits_list, dtype=np.float32),
+                "negative_probe_logits_list": np.array(neg_probe_logits_list, dtype=np.float32),
+            }
+
+            output = DataProto(meta_info={"metrics": metrics}, non_tensor_batch=non_tensor_batch)
 
             output = output.to("cpu")
 

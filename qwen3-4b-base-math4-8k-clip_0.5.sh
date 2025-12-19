@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=2
 #SBATCH --mem=350G
-#SBATCH --time=2:00:00
+#SBATCH --time=48:00:00
 #SBATCH -J qwen3-4b_base_grpo_1e-6_math4_16k_clip_0.5
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
@@ -78,7 +78,7 @@ python3 -m verl.trainer.main_ppo \
     +reward_model.use_format_reward=False \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \
-    +trainer.probe_warmup_steps=0 \
+    +trainer.probe_warmup_steps=20 \
     +trainer.probe_stop_token_num=512 \
     actor_rollout_ref.actor.optim.probe_lr=0.01 \
     actor_rollout_ref.actor.probe_loss_coef=1.0 \

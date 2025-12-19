@@ -23,7 +23,7 @@ import os
 import uuid
 from collections import defaultdict
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pprint import pprint
 from typing import Optional
 
@@ -65,7 +65,195 @@ from verl.utils.seqlen_balancing import (get_seqlen_balanced_partitions,
                                          log_seqlen_unbalance)
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from scipy.stats import beta
 
+from collections import deque
+EPS = 1e-12
+
+@dataclass
+class SamplerParams:
+    # Beta params for pos/neg
+    a_pos: float
+    b_pos: float
+    a_neg: float
+    b_neg: float
+
+
+    # Acceptance rule a(q) = clip(s0 + scale*s1*q, 0, 1)
+    s0: float
+    s1: float
+    scale: float
+
+    # Targets
+    keep_rate: float
+    target_pos_in_kept: float
+
+    # Prior of positive
+    pi: float = 0.3
+    # For numerical stability
+    clip_eps: float = 1e-6
+
+
+def _beta_moments_fit(x: np.ndarray, min_kappa: float = 5.0) -> tuple[float, float]:
+    """
+    Fit Beta(alpha,beta) using method-of-moments.
+    Falls back to a moderate concentration if variance is too large / invalid.
+    """
+    x = np.asarray(x, dtype=float)
+    x = np.clip(x, 1e-6, 1 - 1e-6)
+
+    m = float(np.mean(x))
+    v = float(np.var(x, ddof=1)) if x.size > 1 else float(np.var(x))
+    v = max(v, 1e-9)
+
+    # For Beta: v = m(1-m)/(kappa+1) where kappa=alpha+beta
+    # => kappa = m(1-m)/v - 1
+    kappa = m * (1 - m) / v - 1.0
+
+    if not np.isfinite(kappa) or kappa < min_kappa:
+        # fallback: choose a moderate kappa
+        kappa = max(min_kappa, 30.0)
+
+    a = m * kappa
+    b = (1 - m) * kappa
+    # guard
+    a = float(max(a, 1e-3))
+    b = float(max(b, 1e-3))
+    return a, b
+
+
+def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    x = np.clip(x, clip_eps, 1 - clip_eps)
+    f1 = beta.pdf(x, a_pos, b_pos) + EPS
+    f0 = beta.pdf(x, a_neg, b_neg) + EPS
+    return (pi * f1) / (pi * f1 + (1 - pi) * f0)
+
+
+def fit_sampler_params(
+    pos_logits: list[float] | np.ndarray,
+    neg_logits: list[float] | np.ndarray,
+    keep_rate: float = 0.5,
+    target_pos_in_kept: float = 0.5,
+    pi_override: float | None = 0.3,
+    clip_eps: float = 1e-6,
+) -> SamplerParams:
+    """
+    Interface #1:
+    Input: historical pos/neg logits lists
+    Output: params used for per-sample accept probability
+
+    keep_rate: desired expected keep fraction (default 0.5)
+    target_pos_in_kept: desired positive fraction in kept set (default 0.5)
+    pi_override: if you believe new-batch prior differs, override it. Otherwise use history counts.
+    """
+    pos = np.asarray(pos_logits, dtype=float)
+    neg = np.asarray(neg_logits, dtype=float)
+    if pos.size < 2 or neg.size < 2:
+        raise ValueError("Need at least 2 samples in both pos and neg history for a stable fit.")
+
+    # Fit Beta for pos/neg
+    a_pos, b_pos = _beta_moments_fit(pos)
+    a_neg, b_neg = _beta_moments_fit(neg)
+
+    # Prior pi
+    if pi_override is None:
+        pi = float(pos.size / (pos.size + neg.size))
+    else:
+        pi = float(np.clip(pi_override, 1e-3, 1 - 1e-3))
+    # pi = 0.3
+
+    # Build a historical "mixture" sample to estimate moments of q
+    # Use actual historical points (no MC needed) but weight by mixture prior.
+    # We'll compute q on combined data; that approximates distribution of q under the mixture.
+    x_mix = np.concatenate([pos, neg], axis=0)
+    q_mix = _posterior_q(x_mix, pi, a_pos, b_pos, a_neg, b_neg, clip_eps=clip_eps)
+
+    # For calibrated posterior, E[q] under mixture ~ pi; use empirical anyway
+    mu_q = float(np.mean(q_mix))
+    var_q = float(np.var(q_mix))
+    var_q = max(var_q, 1e-6)
+
+    r = float(keep_rate)
+    t = float(target_pos_in_kept)
+
+    # Base linear coefficients (before clip + scaling calibration)
+    s1 = r * (t - mu_q) / var_q
+    s0 = r - s1 * mu_q
+
+    # Calibrate "scale" to hit E[clip(s0 + scale*s1*q)] ~= r
+    # def expected_keep(scale: float) -> float:
+    #     a = np.clip(s0 + scale * s1 * q_mix, 0.0, 1.0)
+    #     return float(np.mean(a))
+
+    # Binary search over scale (monotone in scale when s1 has fixed sign)
+    # lo, hi = 0.0, 10.0
+    # # Expand hi if needed
+    # for _ in range(30):
+    #     if expected_keep(hi) >= r:
+    #         break
+    #     hi *= 2.0
+
+    # for _ in range(60):
+    #     mid = (lo + hi) / 2.0
+    #     if expected_keep(mid) >= r:
+    #         hi = mid
+    #     else:
+    #         lo = mid
+    # scale = float(hi)
+    
+    def calibrate_scale(q_mix, s0, s1, r):
+        def E(scale):
+            return float(np.mean(np.clip(s0 + scale * s1 * q_mix, 0.0, 1.0)))
+
+        e0 = E(0.0)
+        if abs(e0 - r) < 1e-6:
+            return 0.0
+
+        # 判断方向：E(scale) 是递增还是递减
+        e1 = E(1.0)
+        increasing = (e1 > e0)
+
+        lo, hi = 0.0, 1.0
+        # 找到一个能“跨过 r”的区间 [lo, hi]
+        if increasing:
+            # 需要 E(hi) >= r
+            while E(hi) < r and hi < 1e6:
+                hi *= 2.0
+            if E(hi) < r:
+                return hi  # 到头了也达不到，只能返回最大 hi
+            # 二分：保持 E(lo) < r <= E(hi)
+            for _ in range(60):
+                mid = (lo + hi) / 2
+                if E(mid) >= r:
+                    hi = mid
+                else:
+                    lo = mid
+        else:
+            # 递减：需要 E(hi) <= r
+            while E(hi) > r and hi < 1e6:
+                hi *= 2.0
+            if E(hi) > r:
+                return hi
+            # 二分：保持 E(lo) > r >= E(hi)
+            for _ in range(60):
+                mid = (lo + hi) / 2
+                if E(mid) <= r:
+                    hi = mid
+                else:
+                    lo = mid
+
+        return hi
+    scale = calibrate_scale(q_mix, s0, s1, r)
+
+    return SamplerParams(
+        a_pos=a_pos, b_pos=b_pos,
+        a_neg=a_neg, b_neg=b_neg,
+        pi=pi,
+        s0=float(s0), s1=float(s1), scale=scale,
+        keep_rate=r, target_pos_in_kept=t,
+        clip_eps=clip_eps
+    )
 
 @dataclass
 class ResourcePoolManager:
@@ -289,6 +477,8 @@ class RayPPOTrainer:
     managing actor rollouts, critic training, and reward computation with Ray backend.
     Supports various model architectures including FSDP, Megatron, vLLM, and SGLang integration.
     """
+    
+    
 
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
@@ -362,6 +552,9 @@ class RayPPOTrainer:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+        
+        self.pos_sample_list = deque(maxlen=200)
+        self.neg_sample_list = deque(maxlen=200)
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -1031,15 +1224,20 @@ class RayPPOTrainer:
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                 gen_batch.meta_info['current_conf'] = self.current_conf
                 if self.config.trainer.get("probe_warmup_steps", -1) >= 0 and self.global_steps >= self.config.trainer.get("probe_warmup_steps", -1):
-                    gen_batch.meta_info['probe_max'] = self.probe_max
-                    gen_batch.meta_info['probe_min'] = self.probe_min
+                    # gen_batch.meta_info['probe_max'] = self.probe_max
+                    # gen_batch.meta_info['probe_min'] = self.probe_min
                     gen_batch.meta_info['probe_stop_token_num'] = self.config.trainer.get("probe_stop_token_num", -1)
-                    gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
+                    if not hasattr(self, 'sampler_params'):
+                        gen_batch.meta_info['probe_sampler_params'] = None
+                    else:
+                        gen_batch.meta_info['probe_sampler_params'] = asdict(self.sampler_params)
+                    # gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
                 else:
-                    gen_batch.meta_info['probe_max'] = -1.0
-                    gen_batch.meta_info['probe_min'] = -1.0
+                    # gen_batch.meta_info['probe_max'] = -1.0
+                    # gen_batch.meta_info['probe_min'] = -1.0
                     gen_batch.meta_info['probe_stop_token_num'] = -1
-                    gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
+                    gen_batch.meta_info['probe_sampler_params'] = None
+                    # gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
                 
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
@@ -1194,8 +1392,16 @@ class RayPPOTrainer:
                             # assert 0, self.config.trainer.get("probe_stop_token_num", -1)
                             if len(batch) == 0:
                                 print("Warning: empty batch after filtering, skip actor update")
-                                continue
-                            actor_output = self.actor_rollout_wg.update_actor(batch)
+                            else:
+                                actor_output = self.actor_rollout_wg.update_actor(batch)
+
+                        pos_probe_logits = actor_output.non_tensor_batch.get("positive_probe_logits_list")
+                        if pos_probe_logits is not None and len(pos_probe_logits) > 0:
+                            self.pos_sample_list.extend(pos_probe_logits.tolist())
+                        neg_probe_logits = actor_output.non_tensor_batch.get("negative_probe_logits_list")
+                        if neg_probe_logits is not None and len(neg_probe_logits) > 0:
+                            self.neg_sample_list.extend(neg_probe_logits.tolist())
+
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
                          
@@ -1214,6 +1420,17 @@ class RayPPOTrainer:
                                 flush=True)
                         
                         log_mem(f"step {self.global_steps} post actor update")
+                        
+                        # compute params
+                        self.sampler_params = fit_sampler_params(
+                            self.pos_sample_list,
+                            self.neg_sample_list
+                        )
+                        
+                        print('probe_sampler_params', self.sampler_params)
+                        print('pos_sample_list', self.pos_sample_list)
+                        print('neg_sample_list', self.neg_sample_list)
+                        
                         
                         momentum = self.config.trainer.get("probe_momentum", 0.95)
                         # keep 50%, which means 75 25 percentile
@@ -1282,12 +1499,13 @@ class RayPPOTrainer:
                         "training/epoch": epoch,
                     }
                 )
-                # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
-                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
-                # TODO: implement actual tflpo and theoretical tflpo
-                n_gpus = self.resource_pool_manager.get_n_gpus()
-                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                if batch.batch.get('early_exit', None) is not None and not (batch.batch['early_exit'].bool().all().item()):
+                    # collect metrics
+                    metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                    metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                    # TODO: implement actual tflpo and theoretical tflpo
+                    n_gpus = self.resource_pool_manager.get_n_gpus()
+                    metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):

@@ -367,6 +367,12 @@ class vLLMRollout(BaseRollout):
                     "probe_stop_token_num": prompts.meta_info['probe_stop_token_num'],
                 }
             )
+        if prompts.meta_info.get('probe_sampler_params', None) is not None:
+            if 'extra_args' not in kwargs:
+                kwargs['extra_args'] = {}
+            kwargs["extra_args"].update({
+                    'probe_sampler_params': prompts.meta_info['probe_sampler_params'],
+                })
         # assert 0, prompts.meta_info.get('probe_max', -1.0)
             # print(f"probe max min: {prompts.meta_info['probe_max']}, {prompts.meta_info['probe_min']}")
 

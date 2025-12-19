@@ -72,7 +72,7 @@ python3 -m verl.trainer.main_ppo \
     +trainer.probe_m=0.5 \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \
-    +trainer.probe_warmup_steps=0 \
+    +trainer.probe_warmup_steps=3 \
     +trainer.probe_stop_token_num=512 \
     actor_rollout_ref.actor.optim.probe_lr=0.1 \
     actor_rollout_ref.actor.probe_loss_coef=5.0 \

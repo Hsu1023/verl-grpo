@@ -14,6 +14,35 @@ from vllm.transformers_utils.detokenizer_utils import (
 from vllm.v1.engine import EngineCoreOutput, EngineCoreRequest
 from vllm.v1.outputs import LogprobsLists, LogprobsTensors
 
+from scipy.stats import beta
+import numpy as np
+import random
+
+EPS = 1e-12
+
+@dataclass
+class SamplerParams:
+    # Beta params for pos/neg
+    a_pos: float
+    b_pos: float
+    a_neg: float
+    b_neg: float
+
+    # Prior of positive
+    pi: float
+
+    # Acceptance rule a(q) = clip(s0 + scale*s1*q, 0, 1)
+    s0: float
+    s1: float
+    scale: float
+
+    # Targets
+    keep_rate: float
+    target_pos_in_kept: float
+
+    # For numerical stability
+    clip_eps: float = 1e-6
+
 logger = init_logger(__name__)
 
 NONES = itertools.repeat(None)
@@ -47,6 +76,7 @@ class LogprobsProcessor:
     probe_stop_token_num: int = -1
     probe_stop_has_tested: bool = False
     probe_m: float = 0.5  # default value for probe distribution parameter
+    probe_sampler_params: Optional[dict] = None
 
     @classmethod
     def from_new_request(
@@ -90,6 +120,13 @@ class LogprobsProcessor:
             probe_min = -1.0
             probe_stop_token_num = -1
             probe_m = -1.0
+            
+        if hasattr(request.sampling_params, "extra_args") \
+            and request.sampling_params.extra_args is not None \
+            and request.sampling_params.extra_args.get("probe_sampler_params", None) is not None:
+                probe_sampler_params = request.sampling_params.extra_args.get("probe_sampler_params", None)
+        else:
+            probe_sampler_params = None
         # import ipdb; ipdb.set_trace()
     
         return cls(
@@ -110,7 +147,8 @@ class LogprobsProcessor:
             probe_max=probe_max,
             probe_min=probe_min,
             probe_stop_token_num=probe_stop_token_num,
-            probe_m=probe_m
+            probe_m=probe_m,
+            probe_sampler_params=probe_sampler_params
         )
         
     ##
@@ -129,104 +167,111 @@ class LogprobsProcessor:
         #     print(f"Early stopping triggered: conf {self.conf_grouped} / {len(self.conf_group_list):.4f} < threshold {self.conf_threshold} (window size {len(self.conf_group_list)} / {self.conf_group_size})")
         return ret
     
+    # def check_probe_stop(self, probe_logits: List[float], new_token_num: int) -> bool:
+    #     """Return True if the probe logits trigger early stopping."""
+    #     def distribution(self, r, m=0.5):
+            
+    #         a = self.probe_min   # e.g. 0.12
+    #         b = self.probe_max   # e.g. 0.36
+    #         # -1是不进行early_exit
+    #         if a < 0 or b < 0:
+    #             return False
+            
+    #         import random
+    #         assert 0.0 <= r <= 1.0
+    #         m = 1-m
+
+
+            
+    #         # 如果区间非法，退化为 p=0.5
+    #         if a >= b:
+    #             return (random.random() < m)
+
+    #         B = b - a
+
+    #         # 理论上要求 B <= 0.75，否则下面的 p_out 可能为负
+    #         # 对你 25%-75% 这种用法，通常 B 会 < 0.75
+    #         if B > 0.75:
+    #             B = 0.75  # 或者直接 fallback
+
+    #         # K = ∫ bump(r) dr
+    #         K = (2.0 / 3.0) * B
+
+    #         # 期望约束: 0.5 = p_out + (1 - p_out)*K
+    #         # => p_out = (0.5 - K) / (1 - K)
+    #         p_out = (m - K) / (1.0 - K)
+
+    #         # numerical safety
+    #         if p_out < 0.0:
+    #             p_out = 0.0
+    #         elif p_out > 1.0:
+    #             p_out = 1.0
+
+    #         # 计算 p(r)
+    #         if r < a or r > b:
+    #             p = p_out
+    #         else:
+    #             u = (r - a) / B    # in [0,1]
+    #             bump = 4.0 * u * (1.0 - u)   # in [0,1]
+    #             p = p_out + (1.0 - p_out) * bump
+
+    #         # p 肯定在 [p_out, 1] ⊆ [0,1]，不需要 clip 了
+
+    #         # 注意：如果你想 "区间内 True 概率大"
+    #         # ret=True 的概率就应该是 p，而不是 1-p
+    #         ret = (random.random() < p)
+
+    #         return ret
+
+            
+    #     if not hasattr(self, 'probe_max') or not hasattr(self, 'probe_min'):
+    #         return False
+        
+    #     self.accumulated_token_num += new_token_num
+        
+    #     assert len(probe_logits) == 1
+        
+    #     if not self.probe_stop_has_tested and self.accumulated_token_num >= self.probe_stop_token_num:
+    #         self.probe_stop_has_tested = True
+    #         ret = distribution(self, probe_logits[0], self.probe_m)
+    #         # assert 0, (self.accumulated_token_num, probe_logits[0], self.probe_min, self.probe_max, ret)
+    #     else:
+    #         ret = False
+    #     # assert 0, (probe_logits[0], self.probe_min, self.probe_max, ret)
+        
+    #     return ret # ret is True means stop generation
+    
     def check_probe_stop(self, probe_logits: List[float], new_token_num: int) -> bool:
         """Return True if the probe logits trigger early stopping."""
-        # def distribution(self, r, c_in=0.8, c_out=0.2):
-        #     import random
-        #     assert 0.0 <= r <= 1.0
-
-        #     a = self.probe_min   # e.g. 0.25
-        #     b = self.probe_max   # e.g. 0.75
-        #     if a < 0 or b < 0:
-        #         return True
-        #     B = b - a            # band width
-
-        #     # 1) 计算 Beta(2,2) 形状 bump
-        #     if r < a or r > b:
-        #         bump = 0.0
-        #     else:
-        #         u = (r - a) / B          # u in [0,1]
-        #         bump = 4.0 * u * (1.0 - u)  # Beta(2,2) style, in [0,1]
-
-        #     # 2) φ(r) = c_out + c_in * bump
-        #     phi = c_out + c_in * bump
-
-        #     # 3) μ = ∫_0^1 φ(r) dr = c_out + (2/3) * B * c_in
-        #     mu = c_out + (2.0 / 3.0) * B * c_in
-
-        #     # 4) 归一化到 E[p] = 0.5
-        #     alpha = 0.5 / mu
-        #     p = alpha * phi
-
-        #     # 5) 安全起见 clip 一下
-        #     if p < 0.0:
-        #         p = 0.0
-        #     elif p > 1.0:
-        #         p = 1.0
-                
-        #     ret = not (random.random() < p)
-                
-        #     # assert not ret, f"Probe early stopping triggered at token {self.accumulated_token_num} with probe logit {r:.4f}, range ({self.probe_min}, {self.probe_max}), p value {p}"
-
-        #     return ret
         
-        def distribution(self, r, m=0.5):
+        def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
+            x = np.asarray(x, dtype=float)
+            x = np.clip(x, clip_eps, 1 - clip_eps)
+            f1 = beta.pdf(x, a_pos, b_pos) + EPS
+            f0 = beta.pdf(x, a_neg, b_neg) + EPS
+            return (pi * f1) / (pi * f1 + (1 - pi) * f0)
+        
+        def accept_probability(
+            logit: float | np.ndarray,
+            params: SamplerParams | dict,
+        ) -> float | np.ndarray:
+            """
+            Interface #2:
+            Input: new sample logit + fitted params
+            Output: pass probability in [0,1]
+            """
             
-            a = self.probe_min   # e.g. 0.12
-            b = self.probe_max   # e.g. 0.36
-            # -1是不进行early_exit
-            if a < 0 or b < 0:
-                return False
-            
-            import random
-            assert 0.0 <= r <= 1.0
-            m = 1-m
+            if isinstance(params, dict):
+                params = SamplerParams(**params)
 
-
-            
-            # 如果区间非法，退化为 p=0.5
-            if a >= b:
-                return (random.random() < m)
-
-            B = b - a
-
-            # 理论上要求 B <= 0.75，否则下面的 p_out 可能为负
-            # 对你 25%-75% 这种用法，通常 B 会 < 0.75
-            if B > 0.75:
-                B = 0.75  # 或者直接 fallback
-
-            # K = ∫ bump(r) dr
-            K = (2.0 / 3.0) * B
-
-            # 期望约束: 0.5 = p_out + (1 - p_out)*K
-            # => p_out = (0.5 - K) / (1 - K)
-            p_out = (m - K) / (1.0 - K)
-
-            # numerical safety
-            if p_out < 0.0:
-                p_out = 0.0
-            elif p_out > 1.0:
-                p_out = 1.0
-
-            # 计算 p(r)
-            if r < a or r > b:
-                p = p_out
-            else:
-                u = (r - a) / B    # in [0,1]
-                bump = 4.0 * u * (1.0 - u)   # in [0,1]
-                p = p_out + (1.0 - p_out) * bump
-
-            # p 肯定在 [p_out, 1] ⊆ [0,1]，不需要 clip 了
-
-            # 注意：如果你想 "区间内 True 概率大"
-            # ret=True 的概率就应该是 p，而不是 1-p
-            ret = (random.random() < p)
-
-            # return not ret
-            return ret
+            x = np.asarray(logit, dtype=float)
+            q = _posterior_q([x], params.pi, params.a_pos, params.b_pos, params.a_neg, params.b_neg, clip_eps=params.clip_eps)
+            p = np.clip(params.s0 + params.scale * params.s1 * q, 0.25, 0.75)
+            # return scalar if scalar input
+            return float(p) if np.ndim(logit) == 0 else p
 
             
-        if not hasattr(self, 'probe_max') or not hasattr(self, 'probe_min'):
+        if getattr(self, 'probe_sampler_params', None) is None:
             return False
         
         self.accumulated_token_num += new_token_num
@@ -235,13 +280,13 @@ class LogprobsProcessor:
         
         if not self.probe_stop_has_tested and self.accumulated_token_num >= self.probe_stop_token_num:
             self.probe_stop_has_tested = True
-            ret = distribution(self, probe_logits[0], self.probe_m)
+            ret = not (random.random() < accept_probability(probe_logits[0], self.probe_sampler_params))
             # assert 0, (self.accumulated_token_num, probe_logits[0], self.probe_min, self.probe_max, ret)
         else:
             ret = False
         # assert 0, (probe_logits[0], self.probe_min, self.probe_max, ret)
         
-        return ret # ret is True means stop generation
+        return ret 
 
     def _update_sample_logprobs(self, logprobs_lists: LogprobsLists) -> None:
         """Update with sample logprobs from EngineCore.
