@@ -246,7 +246,7 @@ class vLLMRollout(BaseRollout):
                     old_value = getattr(self.sampling_params, key)
                     old_sampling_params_args[key] = old_value
                     setattr(self.sampling_params, key, value)
-        print(f"updated sampling params: {kwargs}")
+        # print(f"updated sampling params: {kwargs}")
         yield
         # roll back to previous sampling params
         # if len(old_sampling_params_args):

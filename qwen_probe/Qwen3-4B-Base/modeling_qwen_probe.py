@@ -33,20 +33,35 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
     _auto_class = "AutoModelForCausalLM"
     def __init__(self, config):
         super().__init__(config)
-        self.probe_head = nn.Linear(config.hidden_size, 1)
+        # self.probe_head = nn.Linear(config.hidden_size, 1)
+        
+        self.probe_head = nn.Sequential(
+            nn.Linear(config.hidden_size, 128),
+            nn.ReLU(),              # 也可以换成 nn.ReLU()
+            nn.Linear(128, 1),
+        )
         # Initialize probe head explicitly when loading from base Qwen3 (weights won't exist).
         # meta tensors can't host a generator; fall back to CPU in that case
-        _gen_device = "cpu" if self.probe_head.weight.device.type == "meta" else self.probe_head.weight.device
+        if isinstance(self.probe_head, nn.Linear):
+            _gen_device = "cpu" if self.probe_head.weight.device.type == "meta" else self.probe_head.weight.device
+        else:
+            _gen_device = "cpu" if next(self.probe_head.parameters()).device.type == "meta" else next(self.probe_head.parameters()).device
         _probe_gen = torch.Generator(device=_gen_device)
         _probe_gen.manual_seed(getattr(config, "probe_init_seed", 1234))
-        if hasattr(config, "initializer_range"):
-            # nn.init.normal_(self.probe_head.weight, mean=0.0, std=config.initializer_range, generator=_probe_gen)
-            nn.init.zeros_(self.probe_head.weight)
-        else:
-            # nn.init.xavier_uniform_(self.probe_head.weight, generator=_probe_gen)
-            nn.init.zeros_(self.probe_head.weight)
-        if self.probe_head.bias is not None:
-            nn.init.zeros_(self.probe_head.bias)
+        
+        for m in self.probe_head.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)   # 适合 GELU/ReLU 的通用选择
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        # if hasattr(config, "initializer_range"):
+        #     # nn.init.normal_(self.probe_head.weight, mean=0.0, std=config.initializer_range, generator=_probe_gen)
+        #     nn.init.zeros_(self.probe_head.weight)
+        # else:
+        #     # nn.init.xavier_uniform_(self.probe_head.weight, generator=_probe_gen)
+        #     nn.init.zeros_(self.probe_head.weight)
+        # if self.probe_head.bias is not None:
+        #     nn.init.zeros_(self.probe_head.bias)
 
     def forward(
         self,
@@ -68,62 +83,74 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
             return_dict=True,  # force dict to make it easy to attach probe output
             **kwargs,
         )
-
-        probe_logits = None
+        
+        probe_logits_ = None
         probe_loss = None
         # if compute_probe or probe_labels is not None:
             # last_hidden: [bs, seq_len, hidden_size]
-        last_hidden = outputs.hidden_states[-1]
-        
-        if early_exit is not None:
-            early_exit = ~(early_exit.bool())
-
-        # 例如只对最后一个非 padding token 做 probe
-        if attention_mask is not None:
-            seq_len = attention_mask.sum(dim=-1) - 1  # last valid position
-            seq_len = seq_len.clamp(min=0)
-            probe_input = last_hidden.gather(
-                1, seq_len.view(-1, 1, 1).expand(-1, 1, last_hidden.size(-1))
-            ).squeeze(1)  # [bs, hidden]
-        else:
-            probe_input = last_hidden[:, -1, :]       # [bs, hidden]
-        if early_exit is not None:
-            probe_input = probe_input[early_exit]
-        if probe_stop_token_num > 0:
-            # 如果指定的位置越过 last valid，则回退到 last valid；否则取指定位置
-            stop_pos = torch.full_like(seq_len, probe_stop_token_num - 1)
-            stop_pos = torch.minimum(stop_pos, seq_len)
-            print('stop pos', stop_pos)
-            stop_probe = last_hidden.gather(
-                1, stop_pos.view(-1, 1, 1).expand(-1, 1, last_hidden.size(-1))
-            ).squeeze(1)
-            if early_exit is not None:
-                stop_probe = stop_probe[early_exit]
-            probe_input = torch.cat([stop_probe, probe_input], dim=0)
+        if kwargs.get('pad_zero_num', None) is not None:
+            # assert 0, kwargs['pad_zero_num'].tolist()
+            last_hidden = outputs.hidden_states[-1]
             
-        probe_input = probe_input.detach()        # 不让 probe_loss 回传到 backbone
-
-        probe_logits = self.probe_head(probe_input).squeeze(-1)  # [bs]
-        probe_logits_ = torch.sigmoid(probe_logits)
-        # if probe_stop_token_num > 0:
-        #     probe_logits_ = probe_logits_[probe_logits_.size(0) // 2: ]
-            
-        if probe_labels is not None:
-            probe_labels = probe_labels.float().view(-1)
             if early_exit is not None:
-                probe_labels = probe_labels[early_exit]
-            if probe_labels.shape[0] <= 0:
-                probe_loss = None
+                early_exit = ~(early_exit.bool())
+
+            # 例如只对最后一个非 padding token 做 probe
+            if attention_mask is not None:
+                # seq_len = attention_mask.sum(dim=-1) - 1  # last valid position
+                seq_len = attention_mask.shape[1] - kwargs['pad_zero_num'] - 1
+                seq_len = seq_len.clamp(min=0)
+                probe_input = last_hidden.gather(
+                    1, seq_len.view(-1, 1, 1).expand(-1, 1, last_hidden.size(-1))
+                ).squeeze(1)  # [bs, hidden]
+                # assert 0, (seq_len, probe_input)
             else:
-                if probe_stop_token_num > 0:
-                    probe_labels = torch.cat([probe_labels, probe_labels], dim=0)
-                probe_loss = F.binary_cross_entropy_with_logits(
-                    probe_logits.view(-1),
-                    probe_labels,
-                )
-        else:
-            probe_loss = None
-            
+                # probe_input = last_hidden[:, -1, :]       # [bs, hidden]
+                raise NotImplementedError("attention_mask is required for probe when pad tokens exist.")
+            if early_exit is not None:
+                probe_input = probe_input[early_exit]
+            if probe_stop_token_num > 0:
+                
+                start_pos = attention_mask.sum(dim=-1) - 2 + kwargs['pad_zero_num']
+                effective_len = attention_mask.sum(dim=-1) - 2
+                effective_len = torch.clamp(effective_len, max=probe_stop_token_num, min=0)
+                stop_pos = attention_mask.shape[1] - start_pos + effective_len - 1
+                
+                stop_probe = last_hidden.gather(
+                    1, stop_pos.view(-1, 1, 1).expand(-1, 1, last_hidden.size(-1))
+                ).squeeze(1)
+                if early_exit is not None:
+                    stop_probe = stop_probe[early_exit]
+                probe_input = torch.cat([stop_probe, probe_input], dim=0)
+                
+                
+            probe_input = probe_input.detach()        # 不让 probe_loss 回传到 backbone
+
+            probe_logits = self.probe_head(probe_input).squeeze(-1)  # [bs]
+            probe_logits_ = torch.sigmoid(probe_logits)
+            # if probe_stop_token_num > 0:
+            #     probe_logits_ = probe_logits_[probe_logits_.size(0) // 2: ]
+                
+            if probe_labels is not None:
+                probe_labels = probe_labels.float().view(-1)
+                if early_exit is not None:
+                    probe_labels = probe_labels[early_exit]
+                if probe_labels.shape[0] <= 0:
+                    probe_loss = None
+                else:
+                    if probe_stop_token_num > 0:
+                        probe_labels = torch.cat([probe_labels, probe_labels], dim=0)
+                    probe_loss = F.binary_cross_entropy_with_logits(
+                        probe_logits.view(-1),
+                        probe_labels,
+                    )
+            else:
+                probe_loss = None
+                
+            # if len(probe_logits_.tolist())>=2:
+            #     if abs(probe_logits_.tolist()[0]) > 1 - 1e-10:
+            #         assert 0, (probe_logits_.tolist(), attention_mask[0].tolist(), input_ids[0].tolist(), kwargs['pad_zero_num'], attention_mask.sum(dim=-1), attention_mask.shape[1], seq_len, stop_pos)
+            # assert 0, (probe_logits_.tolist(), kwargs['pad_zero_num'], attention_mask.sum(dim=-1), attention_mask.shape[1], seq_len, stop_pos)
         if not return_dict:
             # keep tuple order consistent with `CausalLMOutputWithPast`
             return outputs.to_tuple() + (probe_logits_, probe_loss)

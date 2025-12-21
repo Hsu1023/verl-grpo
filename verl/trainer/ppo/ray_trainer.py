@@ -70,190 +70,307 @@ from scipy.stats import beta
 from collections import deque
 EPS = 1e-12
 
+# @dataclass
+# class SamplerParams:
+#     # Beta params for pos/neg
+#     a_pos: float
+#     b_pos: float
+#     a_neg: float
+#     b_neg: float
+
+
+#     # Acceptance rule a(q) = clip(s0 + scale*s1*q, 0, 1)
+#     s0: float
+#     s1: float
+#     scale: float
+
+#     # Targets
+#     keep_rate: float
+#     target_pos_in_kept: float
+
+#     # Prior of positive
+#     pi: float = 0.3
+#     # For numerical stability
+#     clip_eps: float = 1e-6
+
+
+# def _beta_moments_fit(x: np.ndarray, min_kappa: float = 5.0) -> tuple[float, float]:
+#     """
+#     Fit Beta(alpha,beta) using method-of-moments.
+#     Falls back to a moderate concentration if variance is too large / invalid.
+#     """
+#     x = np.asarray(x, dtype=float)
+#     x = np.clip(x, 1e-6, 1 - 1e-6)
+
+#     m = float(np.mean(x))
+#     v = float(np.var(x, ddof=1)) if x.size > 1 else float(np.var(x))
+#     v = max(v, 1e-9)
+
+#     # For Beta: v = m(1-m)/(kappa+1) where kappa=alpha+beta
+#     # => kappa = m(1-m)/v - 1
+#     kappa = m * (1 - m) / v - 1.0
+
+#     if not np.isfinite(kappa) or kappa < min_kappa:
+#         # fallback: choose a moderate kappa
+#         kappa = max(min_kappa, 30.0)
+
+#     a = m * kappa
+#     b = (1 - m) * kappa
+#     # guard
+#     a = float(max(a, 1e-3))
+#     b = float(max(b, 1e-3))
+#     return a, b
+
+
+# def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
+#     x = np.asarray(x, dtype=float)
+#     x = np.clip(x, clip_eps, 1 - clip_eps)
+#     f1 = beta.pdf(x, a_pos, b_pos) + EPS
+#     f0 = beta.pdf(x, a_neg, b_neg) + EPS
+#     return (pi * f1) / (pi * f1 + (1 - pi) * f0)
+
+
+# def fit_sampler_params(
+#     pos_logits: list[float] | np.ndarray,
+#     neg_logits: list[float] | np.ndarray,
+#     keep_rate: float = 0.5,
+#     target_pos_in_kept: float = 0.5,
+#     pi_override: float | None = 0.3,
+#     clip_eps: float = 1e-6,
+# ) -> SamplerParams:
+#     """
+#     Interface #1:
+#     Input: historical pos/neg logits lists
+#     Output: params used for per-sample accept probability
+
+#     keep_rate: desired expected keep fraction (default 0.5)
+#     target_pos_in_kept: desired positive fraction in kept set (default 0.5)
+#     pi_override: if you believe new-batch prior differs, override it. Otherwise use history counts.
+#     """
+#     pos = np.asarray(pos_logits, dtype=float)
+#     neg = np.asarray(neg_logits, dtype=float)
+#     if pos.size < 2 or neg.size < 2:
+#         raise ValueError("Need at least 2 samples in both pos and neg history for a stable fit.")
+
+#     # Fit Beta for pos/neg
+#     a_pos, b_pos = _beta_moments_fit(pos)
+#     a_neg, b_neg = _beta_moments_fit(neg)
+
+#     # Prior pi
+#     if pi_override is None:
+#         pi = float(pos.size / (pos.size + neg.size))
+#     else:
+#         pi = float(np.clip(pi_override, 1e-3, 1 - 1e-3))
+#     # pi = 0.3
+
+#     # Build a historical "mixture" sample to estimate moments of q
+#     # Use actual historical points (no MC needed) but weight by mixture prior.
+#     # We'll compute q on combined data; that approximates distribution of q under the mixture.
+#     x_mix = np.concatenate([pos, neg], axis=0)
+#     q_mix = _posterior_q(x_mix, pi, a_pos, b_pos, a_neg, b_neg, clip_eps=clip_eps)
+
+#     # For calibrated posterior, E[q] under mixture ~ pi; use empirical anyway
+#     mu_q = float(np.mean(q_mix))
+#     var_q = float(np.var(q_mix))
+#     var_q = max(var_q, 1e-6)
+
+#     r = float(keep_rate)
+#     t = float(target_pos_in_kept)
+
+#     # Base linear coefficients (before clip + scaling calibration)
+#     s1 = r * (t - mu_q) / var_q
+#     s0 = r - s1 * mu_q
+
+#     # Calibrate "scale" to hit E[clip(s0 + scale*s1*q)] ~= r
+#     # def expected_keep(scale: float) -> float:
+#     #     a = np.clip(s0 + scale * s1 * q_mix, 0.0, 1.0)
+#     #     return float(np.mean(a))
+
+#     # Binary search over scale (monotone in scale when s1 has fixed sign)
+#     # lo, hi = 0.0, 10.0
+#     # # Expand hi if needed
+#     # for _ in range(30):
+#     #     if expected_keep(hi) >= r:
+#     #         break
+#     #     hi *= 2.0
+
+#     # for _ in range(60):
+#     #     mid = (lo + hi) / 2.0
+#     #     if expected_keep(mid) >= r:
+#     #         hi = mid
+#     #     else:
+#     #         lo = mid
+#     # scale = float(hi)
+    
+#     def calibrate_scale(q_mix, s0, s1, r):
+#         def E(scale):
+#             return float(np.mean(np.clip(s0 + scale * s1 * q_mix, 0.0, 1.0)))
+
+#         e0 = E(0.0)
+#         if abs(e0 - r) < 1e-6:
+#             return 0.0
+
+#         # 判断方向：E(scale) 是递增还是递减
+#         e1 = E(1.0)
+#         increasing = (e1 > e0)
+
+#         lo, hi = 0.0, 1.0
+#         # 找到一个能“跨过 r”的区间 [lo, hi]
+#         if increasing:
+#             # 需要 E(hi) >= r
+#             while E(hi) < r and hi < 1e6:
+#                 hi *= 2.0
+#             if E(hi) < r:
+#                 return hi  # 到头了也达不到，只能返回最大 hi
+#             # 二分：保持 E(lo) < r <= E(hi)
+#             for _ in range(60):
+#                 mid = (lo + hi) / 2
+#                 if E(mid) >= r:
+#                     hi = mid
+#                 else:
+#                     lo = mid
+#         else:
+#             # 递减：需要 E(hi) <= r
+#             while E(hi) > r and hi < 1e6:
+#                 hi *= 2.0
+#             if E(hi) > r:
+#                 return hi
+#             # 二分：保持 E(lo) > r >= E(hi)
+#             for _ in range(60):
+#                 mid = (lo + hi) / 2
+#                 if E(mid) <= r:
+#                     hi = mid
+#                 else:
+#                     lo = mid
+
+#         return hi
+#     scale = calibrate_scale(q_mix, s0, s1, r)
+
+#     return SamplerParams(
+#         a_pos=a_pos, b_pos=b_pos,
+#         a_neg=a_neg, b_neg=b_neg,
+#         pi=pi,
+#         s0=float(s0), s1=float(s1), scale=scale,
+#         keep_rate=r, target_pos_in_kept=t,
+#         clip_eps=clip_eps
+#     )
+
 @dataclass
-class SamplerParams:
-    # Beta params for pos/neg
-    a_pos: float
-    b_pos: float
-    a_neg: float
-    b_neg: float
+class HistGentleParams:
+    bins: int
+    q_bins: np.ndarray      # shape [bins], q_bins[b]=P(pos|bin=b)
+    w_bins: np.ndarray      # mixture weights for bins, used for calibration
 
+    keep_rate: float        # r
+    target_pos_in_kept: float  # t
+    lam: float              # λ
+    p_min: float
+    p_max: float
+    delta: float            # δ (calibrated)
+    pi: float               # prior used to compute q_bins
 
-    # Acceptance rule a(q) = clip(s0 + scale*s1*q, 0, 1)
-    s0: float
-    s1: float
-    scale: float
-
-    # Targets
-    keep_rate: float
-    target_pos_in_kept: float
-
-    # Prior of positive
-    pi: float = 0.3
-    # For numerical stability
-    clip_eps: float = 1e-6
-
-
-def _beta_moments_fit(x: np.ndarray, min_kappa: float = 5.0) -> tuple[float, float]:
-    """
-    Fit Beta(alpha,beta) using method-of-moments.
-    Falls back to a moderate concentration if variance is too large / invalid.
-    """
+def _bin_index(x: np.ndarray, bins: int) -> np.ndarray:
     x = np.asarray(x, dtype=float)
-    x = np.clip(x, 1e-6, 1 - 1e-6)
+    x = np.clip(x, 0.0, 1.0)
+    # map [0,1] -> {0,...,bins-1}, 1.0 goes to bins-1
+    idx = (x * bins).astype(int)
+    return np.clip(idx, 0, bins - 1)
 
-    m = float(np.mean(x))
-    v = float(np.var(x, ddof=1)) if x.size > 1 else float(np.var(x))
-    v = max(v, 1e-9)
+def _calibrate_delta(q_bins: np.ndarray, w_bins: np.ndarray,
+                     r: float, t: float, lam: float, p_min: float, p_max: float) -> float:
+    # Solve: E[ clip(r + delta + lam*(t - q), p_min, p_max) ] = r
+    def E(delta: float) -> float:
+        p = np.clip(r + delta + lam * (t - q_bins), p_min, p_max)
+        return float(np.sum(w_bins * p))
 
-    # For Beta: v = m(1-m)/(kappa+1) where kappa=alpha+beta
-    # => kappa = m(1-m)/v - 1
-    kappa = m * (1 - m) / v - 1.0
+    # Find bracket
+    lo, hi = -1.0, 1.0
+    elo, ehi = E(lo), E(hi)
+    # Expand if not bracketing
+    for _ in range(30):
+        if (elo - r) * (ehi - r) <= 0:
+            break
+        lo *= 2.0
+        hi *= 2.0
+        elo, ehi = E(lo), E(hi)
 
-    if not np.isfinite(kappa) or kappa < min_kappa:
-        # fallback: choose a moderate kappa
-        kappa = max(min_kappa, 30.0)
+    # If still not bracketing, just return midpoint (rare, means clipping dominates hard)
+    if (elo - r) * (ehi - r) > 0:
+        return 0.0
 
-    a = m * kappa
-    b = (1 - m) * kappa
-    # guard
-    a = float(max(a, 1e-3))
-    b = float(max(b, 1e-3))
-    return a, b
+    # Bisection
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        emid = E(mid)
+        if emid > r:
+            hi = mid
+        else:
+            lo = mid
+    return float((lo + hi) / 2)
 
-
-def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
-    x = np.asarray(x, dtype=float)
-    x = np.clip(x, clip_eps, 1 - clip_eps)
-    f1 = beta.pdf(x, a_pos, b_pos) + EPS
-    f0 = beta.pdf(x, a_neg, b_neg) + EPS
-    return (pi * f1) / (pi * f1 + (1 - pi) * f0)
-
-
-def fit_sampler_params(
+def fit_hist_gentle_params(
     pos_logits: list[float] | np.ndarray,
     neg_logits: list[float] | np.ndarray,
-    keep_rate: float = 0.5,
-    target_pos_in_kept: float = 0.5,
-    pi_override: float | None = 0.3,
-    clip_eps: float = 1e-6,
-) -> SamplerParams:
-    """
-    Interface #1:
-    Input: historical pos/neg logits lists
-    Output: params used for per-sample accept probability
-
-    keep_rate: desired expected keep fraction (default 0.5)
-    target_pos_in_kept: desired positive fraction in kept set (default 0.5)
-    pi_override: if you believe new-batch prior differs, override it. Otherwise use history counts.
-    """
+    *,
+    bins: int = 128,
+    alpha: float = 1.0,                 # Laplace smoothing
+    keep_rate: float = 0.5,             # r
+    target_pos_in_kept: float = 0.4,    # t
+    lam: float = 0.5,                   # λ (gentle strength)
+    p_min: float = 0.25,
+    p_max: float = 0.75,
+    pi_mode: str = "history",              # "half" or "history" or "override"
+    pi_override: float | None = None,
+) -> HistGentleParams:
     pos = np.asarray(pos_logits, dtype=float)
     neg = np.asarray(neg_logits, dtype=float)
-    if pos.size < 2 or neg.size < 2:
-        raise ValueError("Need at least 2 samples in both pos and neg history for a stable fit.")
+    # if pos.size < 10 or neg.size < 10:
+    #     raise ValueError("Need >=10 pos and >=10 neg history samples for stability.")
 
-    # Fit Beta for pos/neg
-    a_pos, b_pos = _beta_moments_fit(pos)
-    a_neg, b_neg = _beta_moments_fit(neg)
-
-    # Prior pi
-    if pi_override is None:
+    if pi_mode == "half":
+        pi = 0.5
+    elif pi_mode == "history":
         pi = float(pos.size / (pos.size + neg.size))
-    else:
+    elif pi_mode == "override":
+        if pi_override is None:
+            raise ValueError("pi_mode='override' requires pi_override.")
         pi = float(np.clip(pi_override, 1e-3, 1 - 1e-3))
-    # pi = 0.3
+    else:
+        raise ValueError("pi_mode must be one of: 'half', 'history', 'override'.")
 
-    # Build a historical "mixture" sample to estimate moments of q
-    # Use actual historical points (no MC needed) but weight by mixture prior.
-    # We'll compute q on combined data; that approximates distribution of q under the mixture.
-    x_mix = np.concatenate([pos, neg], axis=0)
-    q_mix = _posterior_q(x_mix, pi, a_pos, b_pos, a_neg, b_neg, clip_eps=clip_eps)
+    # Count bins
+    pos_idx = _bin_index(pos, bins)
+    neg_idx = _bin_index(neg, bins)
+    pos_cnt = np.bincount(pos_idx, minlength=bins).astype(float)
+    neg_cnt = np.bincount(neg_idx, minlength=bins).astype(float)
 
-    # For calibrated posterior, E[q] under mixture ~ pi; use empirical anyway
-    mu_q = float(np.mean(q_mix))
-    var_q = float(np.var(q_mix))
-    var_q = max(var_q, 1e-6)
+    # Smoothed P(bin | class)
+    p_bin_pos = (pos_cnt + alpha) / (pos_cnt.sum() + alpha * bins)
+    p_bin_neg = (neg_cnt + alpha) / (neg_cnt.sum() + alpha * bins)
 
-    r = float(keep_rate)
-    t = float(target_pos_in_kept)
+    # Mixture weights over bins under prior pi
+    w_bins = pi * p_bin_pos + (1 - pi) * p_bin_neg
 
-    # Base linear coefficients (before clip + scaling calibration)
-    s1 = r * (t - mu_q) / var_q
-    s0 = r - s1 * mu_q
+    # Posterior q per bin
+    denom = pi * p_bin_pos + (1 - pi) * p_bin_neg
+    q_bins = (pi * p_bin_pos) / np.clip(denom, 1e-12, None)
 
-    # Calibrate "scale" to hit E[clip(s0 + scale*s1*q)] ~= r
-    # def expected_keep(scale: float) -> float:
-    #     a = np.clip(s0 + scale * s1 * q_mix, 0.0, 1.0)
-    #     return float(np.mean(a))
+    # Calibrate delta to keep mean keep-rate ~ keep_rate after clipping
+    delta = _calibrate_delta(q_bins, w_bins, keep_rate, target_pos_in_kept, lam, p_min, p_max)
 
-    # Binary search over scale (monotone in scale when s1 has fixed sign)
-    # lo, hi = 0.0, 10.0
-    # # Expand hi if needed
-    # for _ in range(30):
-    #     if expected_keep(hi) >= r:
-    #         break
-    #     hi *= 2.0
-
-    # for _ in range(60):
-    #     mid = (lo + hi) / 2.0
-    #     if expected_keep(mid) >= r:
-    #         hi = mid
-    #     else:
-    #         lo = mid
-    # scale = float(hi)
-    
-    def calibrate_scale(q_mix, s0, s1, r):
-        def E(scale):
-            return float(np.mean(np.clip(s0 + scale * s1 * q_mix, 0.0, 1.0)))
-
-        e0 = E(0.0)
-        if abs(e0 - r) < 1e-6:
-            return 0.0
-
-        # 判断方向：E(scale) 是递增还是递减
-        e1 = E(1.0)
-        increasing = (e1 > e0)
-
-        lo, hi = 0.0, 1.0
-        # 找到一个能“跨过 r”的区间 [lo, hi]
-        if increasing:
-            # 需要 E(hi) >= r
-            while E(hi) < r and hi < 1e6:
-                hi *= 2.0
-            if E(hi) < r:
-                return hi  # 到头了也达不到，只能返回最大 hi
-            # 二分：保持 E(lo) < r <= E(hi)
-            for _ in range(60):
-                mid = (lo + hi) / 2
-                if E(mid) >= r:
-                    hi = mid
-                else:
-                    lo = mid
-        else:
-            # 递减：需要 E(hi) <= r
-            while E(hi) > r and hi < 1e6:
-                hi *= 2.0
-            if E(hi) > r:
-                return hi
-            # 二分：保持 E(lo) > r >= E(hi)
-            for _ in range(60):
-                mid = (lo + hi) / 2
-                if E(mid) <= r:
-                    hi = mid
-                else:
-                    lo = mid
-
-        return hi
-    scale = calibrate_scale(q_mix, s0, s1, r)
-
-    return SamplerParams(
-        a_pos=a_pos, b_pos=b_pos,
-        a_neg=a_neg, b_neg=b_neg,
-        pi=pi,
-        s0=float(s0), s1=float(s1), scale=scale,
-        keep_rate=r, target_pos_in_kept=t,
-        clip_eps=clip_eps
+    return HistGentleParams(
+        bins=bins,
+        q_bins=q_bins,
+        w_bins=w_bins,
+        keep_rate=float(keep_rate),
+        target_pos_in_kept=float(target_pos_in_kept),
+        lam=float(lam),
+        p_min=float(p_min),
+        p_max=float(p_max),
+        delta=float(delta),
+        pi=float(pi),
     )
+
 
 @dataclass
 class ResourcePoolManager:
@@ -553,8 +670,15 @@ class RayPPOTrainer:
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
         
-        self.pos_sample_list = deque(maxlen=200)
-        self.neg_sample_list = deque(maxlen=200)
+        MAXLEN = 200
+        # 从 config 取；如果没给就用空列表
+        self.pos_sample_list = self.config.trainer.get("pos_sample_list") or []
+        self.neg_sample_list = self.config.trainer.get("neg_sample_list") or []
+
+        # 统一转成 deque，并设置 maxlen
+        # self.pos_sample_list = deque(self.pos_sample_list, maxlen=MAXLEN)
+        # self.neg_sample_list = deque(self.neg_sample_list, maxlen=MAXLEN)
+        
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -1392,18 +1516,20 @@ class RayPPOTrainer:
                             # assert 0, self.config.trainer.get("probe_stop_token_num", -1)
                             if len(batch) == 0:
                                 print("Warning: empty batch after filtering, skip actor update")
+                                actor_output = None
                             else:
                                 actor_output = self.actor_rollout_wg.update_actor(batch)
 
-                        pos_probe_logits = actor_output.non_tensor_batch.get("positive_probe_logits_list")
-                        if pos_probe_logits is not None and len(pos_probe_logits) > 0:
-                            self.pos_sample_list.extend(pos_probe_logits.tolist())
-                        neg_probe_logits = actor_output.non_tensor_batch.get("negative_probe_logits_list")
-                        if neg_probe_logits is not None and len(neg_probe_logits) > 0:
-                            self.neg_sample_list.extend(neg_probe_logits.tolist())
+                        if actor_output is not None:
+                            pos_probe_logits = actor_output.non_tensor_batch.get("positive_probe_logits_list")
+                            if pos_probe_logits is not None and len(pos_probe_logits) > 0:
+                                self.pos_sample_list.extend(pos_probe_logits.tolist())
+                            neg_probe_logits = actor_output.non_tensor_batch.get("negative_probe_logits_list")
+                            if neg_probe_logits is not None and len(neg_probe_logits) > 0:
+                                self.neg_sample_list.extend(neg_probe_logits.tolist())
 
-                        actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
-                        metrics.update(actor_output_metrics)
+                            actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
+                            metrics.update(actor_output_metrics)
                          
 
                         def log_mem(prefix=""):
@@ -1422,12 +1548,26 @@ class RayPPOTrainer:
                         log_mem(f"step {self.global_steps} post actor update")
                         
                         # compute params
-                        self.sampler_params = fit_sampler_params(
-                            self.pos_sample_list,
-                            self.neg_sample_list
-                        )
+                        # self.sampler_params = fit_sampler_params(
+                        #     self.pos_sample_list,
+                        #     self.neg_sample_list
+                        # )
                         
-                        print('probe_sampler_params', self.sampler_params)
+                        if self.config.trainer.get("p_min", False):
+                            self.sampler_params = fit_hist_gentle_params(
+                                self.pos_sample_list,
+                                self.neg_sample_list,
+                                p_min=self.config.trainer.p_min,
+                                p_max=self.config.trainer.p_max
+                            )
+                        else:
+                            self.sampler_params = fit_hist_gentle_params(
+                                self.pos_sample_list,
+                                self.neg_sample_list,
+                            )
+                        
+                        
+                        # print('probe_sampler_params', self.sampler_params)
                         print('pos_sample_list', self.pos_sample_list)
                         print('neg_sample_list', self.neg_sample_list)
                         

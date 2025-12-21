@@ -288,6 +288,7 @@ class DataParallelPPOActor(BasePPOActor):
                     assert torch.all(~((scores > 0.0) & (scores < 1.0))), scores
                     
                     extra_args["early_exit"] = micro_batch.get("early_exit", None)
+                    extra_args["pad_zero_num"] = (~(micro_batch['response_mask'].bool())).sum(dim=-1) + 2
 
                 
                 output = self.actor_module(
@@ -539,18 +540,28 @@ class DataParallelPPOActor(BasePPOActor):
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
+                    effective_response_mask = response_mask
+                    early_exit_mask = model_inputs.get("early_exit")
+                    if early_exit_mask is not None:
+                        early_exit_mask = ~early_exit_mask.bool()
+                        if early_exit_mask.dim() < response_mask.dim():
+                            early_exit_mask = early_exit_mask.unsqueeze(-1)
+                        effective_response_mask = response_mask * early_exit_mask
+
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
                         old_log_prob=old_log_prob,
                         log_prob=log_prob,
                         advantages=advantages,
-                        response_mask=response_mask,
+                        response_mask=effective_response_mask,
                         loss_agg_mode=loss_agg_mode,
                         config=self.config,
                         rollout_log_probs=rollout_log_probs,
                     )
 
                     if entropy_coeff != 0:
-                        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = agg_loss(
+                            loss_mat=entropy, loss_mask=effective_response_mask, loss_agg_mode=loss_agg_mode
+                        )
 
                         # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
@@ -563,8 +574,11 @@ class DataParallelPPOActor(BasePPOActor):
                         kld = kl_penalty(
                             logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
                         )
-                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                        assert 0, (log_prob.shape, ref_log_prob.shape, kl_penalty, agg_loss)
+                        kl_loss_mask = effective_response_mask
+                        if early_exit_mask is not None and early_exit_mask.dim() < kld.dim():
+                            # make sure mask shape matches kld if kl_penalty returns more dims in the future
+                            kl_loss_mask = kl_loss_mask.unsqueeze(-1)
+                        kl_loss = agg_loss(loss_mat=kld, loss_mask=kl_loss_mask, loss_agg_mode=loss_agg_mode)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
@@ -619,6 +633,11 @@ class DataParallelPPOActor(BasePPOActor):
                                     positive_probe_logits_list.extend(positive_probe_logits.tolist())
                                 if negative_probe_logits.shape[0] > 0:
                                     negative_probe_logits_list.extend(negative_probe_logits.tolist())
+                                
+                                # assert 0, stop_logits.tolist()
+                                # if len(stop_logits.tolist())>=2:
+                                #     if abs(stop_logits.tolist()[0]) > 1 - 1e-20:
+                                #         assert 0, (stop_logits.tolist(), model_inputs['response_mask'][0].tolist(), model_inputs['attention_mask'][0].tolist() - 1, model_inputs['attention_mask'].sum(dim=1), model_inputs['input_ids'])
                                 
                             
                         

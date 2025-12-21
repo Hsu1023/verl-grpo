@@ -90,7 +90,12 @@ class Qwen3ProbeForCausalLM(nn.Module, SupportsLoRA, SupportsPP, SupportsEagle3)
                                               prefix=maybe_prefix(
                                                   prefix, "lm_head"))
             # NEW
-            self.probe_head = nn.Linear(config.hidden_size, 1, bias=True)
+            # self.probe_head = nn.Linear(config.hidden_size, 1, bias=True)
+            self.probe_head = nn.Sequential(
+                nn.Linear(config.hidden_size, 128),
+                nn.ReLU(),              # 也可以换成 nn.ReLU()
+                nn.Linear(128, 1),
+            )
         else:
             self.lm_head = PPMissingLayer()
             # NEW
@@ -99,18 +104,30 @@ class Qwen3ProbeForCausalLM(nn.Module, SupportsLoRA, SupportsPP, SupportsEagle3)
         # NEW
         if isinstance(self.probe_head, nn.Linear):
             probe_seed = getattr(config, "probe_init_seed", 1234)
-            gen_device = "cpu" if self.probe_head.weight.device.type == "meta" else self.probe_head.weight.device
+            
+            if isinstance(self.probe_head, nn.Linear):
+                gen_device = "cpu" if self.probe_head.weight.device.type == "meta" else self.probe_head.weight.device
+            else:
+                gen_device = "cpu" if next(self.probe_head.parameters()).device.type == "meta" else next(self.probe_head.parameters()).device
+            # gen_device = "cpu" if self.probe_head.weight.device.type == "meta" else self.probe_head.weight.device
             probe_gen = torch.Generator(device=gen_device)
             probe_gen.manual_seed(probe_seed)
             init_std = getattr(config, "initializer_range", None)
-            if init_std is not None:
-                nn.init.zeros_(self.probe_head.weight)
-                # nn.init.normal_(self.probe_head.weight, mean=0.0, std=init_std, generator=probe_gen)
-            else:
-                # nn.init.xavier_uniform_(self.probe_head.weight, generator=probe_gen)
-                nn.init.zeros_(self.probe_head.weight)
-            if self.probe_head.bias is not None:
-                nn.init.zeros_(self.probe_head.bias)
+            
+            for m in self.probe_head.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)   # 适合 GELU/ReLU 的通用选择
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
+            # if init_std is not None:
+            #     nn.init.zeros_(self.probe_head.weight)
+            #     # nn.init.normal_(self.probe_head.weight, mean=0.0, std=init_std, generator=probe_gen)
+            # else:
+            #     # nn.init.xavier_uniform_(self.probe_head.weight, generator=probe_gen)
+            #     nn.init.zeros_(self.probe_head.weight)
+            # if self.probe_head.bias is not None:
+            #     nn.init.zeros_(self.probe_head.bias)
+            
             for p in self.probe_head.parameters():
                 p.requires_grad = False
 

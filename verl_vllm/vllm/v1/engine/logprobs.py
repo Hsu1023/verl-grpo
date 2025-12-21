@@ -43,6 +43,21 @@ class SamplerParams:
     # For numerical stability
     clip_eps: float = 1e-6
 
+
+@dataclass
+class HistGentleParams:
+    bins: int
+    q_bins: np.ndarray      # shape [bins], q_bins[b]=P(pos|bin=b)
+    w_bins: np.ndarray      # mixture weights for bins, used for calibration
+
+    keep_rate: float        # r
+    target_pos_in_kept: float  # t
+    lam: float              # λ
+    p_min: float
+    p_max: float
+    delta: float            # δ (calibrated)
+    pi: float               # prior used to compute q_bins
+    
 logger = init_logger(__name__)
 
 NONES = itertools.repeat(None)
@@ -244,30 +259,49 @@ class LogprobsProcessor:
     def check_probe_stop(self, probe_logits: List[float], new_token_num: int) -> bool:
         """Return True if the probe logits trigger early stopping."""
         
-        def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
-            x = np.asarray(x, dtype=float)
-            x = np.clip(x, clip_eps, 1 - clip_eps)
-            f1 = beta.pdf(x, a_pos, b_pos) + EPS
-            f0 = beta.pdf(x, a_neg, b_neg) + EPS
-            return (pi * f1) / (pi * f1 + (1 - pi) * f0)
+        # def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
+        #     x = np.asarray(x, dtype=float)
+        #     x = np.clip(x, clip_eps, 1 - clip_eps)
+        #     f1 = beta.pdf(x, a_pos, b_pos) + EPS
+        #     f0 = beta.pdf(x, a_neg, b_neg) + EPS
+        #     return (pi * f1) / (pi * f1 + (1 - pi) * f0)
         
-        def accept_probability(
-            logit: float | np.ndarray,
-            params: SamplerParams | dict,
-        ) -> float | np.ndarray:
-            """
-            Interface #2:
-            Input: new sample logit + fitted params
-            Output: pass probability in [0,1]
-            """
+        # def accept_probability(
+        #     logit: float | np.ndarray,
+        #     params: SamplerParams | dict,
+        # ) -> float | np.ndarray:
+        #     """
+        #     Interface #2:
+        #     Input: new sample logit + fitted params
+        #     Output: pass probability in [0,1]
+        #     """
             
-            if isinstance(params, dict):
-                params = SamplerParams(**params)
+        #     if isinstance(params, dict):
+        #         params = SamplerParams(**params)
 
+        #     x = np.asarray(logit, dtype=float)
+        #     q = _posterior_q([x], params.pi, params.a_pos, params.b_pos, params.a_neg, params.b_neg, clip_eps=params.clip_eps)
+        #     p = np.clip(params.s0 + params.scale * params.s1 * q, 0.25, 0.75)
+        #     # return scalar if scalar input
+        #     return float(p) if np.ndim(logit) == 0 else p
+        def _bin_index(x: np.ndarray, bins: int) -> np.ndarray:
+            x = np.asarray(x, dtype=float)
+            x = np.clip(x, 0.0, 1.0)
+            # map [0,1] -> {0,...,bins-1}, 1.0 goes to bins-1
+            idx = (x * bins).astype(int)
+            return np.clip(idx, 0, bins - 1)
+        
+        def accept_prob_hist_gentle(logit: float | np.ndarray, params: HistGentleParams | dict) -> float | np.ndarray:
             x = np.asarray(logit, dtype=float)
-            q = _posterior_q([x], params.pi, params.a_pos, params.b_pos, params.a_neg, params.b_neg, clip_eps=params.clip_eps)
-            p = np.clip(params.s0 + params.scale * params.s1 * q, 0.25, 0.75)
-            # return scalar if scalar input
+            if isinstance(params, dict):
+                params = HistGentleParams(**params)
+            idx = _bin_index(x, params.bins)
+            q = params.q_bins[idx]
+            p = np.clip(
+                params.keep_rate + params.delta + params.lam * (params.target_pos_in_kept - q),
+                params.p_min, params.p_max
+            )
+            # assert 0, (params.lam, params.p_min, params.p_max)
             return float(p) if np.ndim(logit) == 0 else p
 
             
@@ -280,7 +314,7 @@ class LogprobsProcessor:
         
         if not self.probe_stop_has_tested and self.accumulated_token_num >= self.probe_stop_token_num:
             self.probe_stop_has_tested = True
-            ret = not (random.random() < accept_probability(probe_logits[0], self.probe_sampler_params))
+            ret = not (random.random() < accept_prob_hist_gentle(probe_logits[0], self.probe_sampler_params))
             # assert 0, (self.accumulated_token_num, probe_logits[0], self.probe_min, self.probe_max, ret)
         else:
             ret = False
