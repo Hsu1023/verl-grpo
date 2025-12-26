@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=100G
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH -J run_print_conf
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
@@ -29,16 +29,16 @@ VAL_FILES="[\"$aime2024_path\",\"$aime2025_path\",\"$amc23_path\"]"
 
 # LOCAL_DIR=/u/haoboxu/work/verl/checkpoints/verl_examples/qwen3-4b_base_grpo_1e-6_math4_16k_dapo
 LOCAL_DIR=/projects/bfne/qwen3-4b_base_grpo_1e-6_math4_16k_dapo
-TARGET_DIR=/u/haoboxu/work/verl/merged_checkpoints/qwen3-4b_base_grpo_1e-6_math4_16k_dapo
-BASE_MODEL_PATH=Qwen/Qwen3-4B-Base
-EVALUATE_ARGS="--max_length 16384 --pass_k 16 --batch_size 1 --val_dataset $VAL_FILES"
+TARGET_DIR=/u/haoboxu/work/verl/checkpoints/merged_checkpoints/qwen3_1.7b_baseline
+BASE_MODEL_PATH=/u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base
+EVALUATE_ARGS="--max_length 16384 --pass_k 32 --batch_size 1 --val_dataset $VAL_FILES"
 
 # torchrun --standalone --nproc_per_node=1 merge.py --local_dir $LOCAL_DIR  --target_dir $TARGET_DIR --hf_model_path $BASE_MODEL_PATH
 
 # torchrun evaluate.py --model_dir $BASE_MODEL_PATH ${EVALUATE_ARGS}
 
 # ckpts=("200" "300" "400" "500" "600")
-ckpts=("300" "500" "600")
+ckpts=("150")
 # ckpts=("600")
 for ckpt in "${ckpts[@]}"; do
     torchrun evaluate.py --model_dir $TARGET_DIR/global_step_$ckpt ${EVALUATE_ARGS}

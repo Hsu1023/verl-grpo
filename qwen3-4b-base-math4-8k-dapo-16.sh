@@ -5,9 +5,9 @@
 #SBATCH -n 1
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=2
-#SBATCH --mem=250G
-#SBATCH --time=24:00:00
-#SBATCH -J qwen3-4b_base_grpo_1e-6_math4_16k_dapo
+#SBATCH --mem=300G
+#SBATCH --time=48:00:00
+#SBATCH -J qwen3-4b_base_grpo_16
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
 
@@ -21,8 +21,8 @@ export HYDRA_FULL_ERROR=1
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
 save_path=$BASE_PATH/output
-exp_name=qwen3-4b_base_grpo_1e-6_math4_16k_dapo_test
-project_name='verl_grpo_example_gsm8k_test'
+exp_name=qwen3-4b_base_grpo_16
+project_name='verl_grpo_example_gsm8k'
 
 aime2024_path=$BASE_PATH/data/aime2024/test.parquet
 aime2025_path=$BASE_PATH/data/aime2025/test.parquet
@@ -44,10 +44,9 @@ VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$olympiadbench_p
 
 mkdir -p $BASE_PATH/checkpoints/$exp_name
 
-# conda activate verl
-export VERL_AUTO_PADDING=1
+conda activate verl
 
-    # 
+# export VERL_AUTO_PADDING=1
 
 python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=2 \
@@ -58,25 +57,22 @@ python3 -m verl.trainer.main_ppo \
     data.train_batch_size=16 \
     actor_rollout_ref.actor.ppo_mini_batch_size=2 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2  \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     data.max_prompt_length=512 \
     data.max_response_length=7680 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    "+algorithm.early_exit_grad=False" \
-    +algorithm.cutoff=True \
-    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base \
+    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base \
     +reward_model.use_format_reward=False \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \
-    +trainer.probe_warmup_steps=0 \
-    +trainer.probe_stop_token_num=512 \
+    +trainer.probe_warmup_steps=100000 \
+    +trainer.probe_stop_token_num=-1 \
     actor_rollout_ref.actor.optim.probe_lr=0.01 \
-    actor_rollout_ref.actor.probe_loss_coef=1 \
-    +trainer.probe_momentum=0.95 \
+    actor_rollout_ref.actor.probe_loss_coef=1.0 \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.use_probe=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -96,7 +92,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console"]' \
     trainer.experiment_name=$exp_name \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
+    trainer.save_freq=50 \
     trainer.resume_mode=auto \
     trainer.test_freq=50 \
     trainer.total_epochs=1 "$@" 2>&1 | tee -a $BASE_PATH/checkpoints/$exp_name/train.log

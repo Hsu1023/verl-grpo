@@ -1355,6 +1355,7 @@ class RayPPOTrainer:
                         gen_batch.meta_info['probe_sampler_params'] = None
                     else:
                         gen_batch.meta_info['probe_sampler_params'] = asdict(self.sampler_params)
+                    # assert 0
                     # gen_batch.meta_info['probe_m'] = self.config.trainer.get("probe_m", 0.5)
                 else:
                     # gen_batch.meta_info['probe_max'] = -1.0

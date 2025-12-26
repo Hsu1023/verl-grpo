@@ -40,6 +40,7 @@ logger = init_logger(__name__)
 _TEXT_GENERATION_MODELS = {
     # [Decoder-only]
     "Qwen3ProbeForCausalLM": ("qwen3_probe", "Qwen3ProbeForCausalLM"),
+    "LlamaProbeForCausalLM": ("llama_probe", "LlamaProbeForCausalLM"),
     "ApertusForCausalLM": ("apertus", "ApertusForCausalLM"),
     "AquilaModel": ("llama", "LlamaForCausalLM"),
     "AquilaForCausalLM": ("llama", "LlamaForCausalLM"),  # AquilaChat2

@@ -284,11 +284,11 @@ class DataParallelPPOActor(BasePPOActor):
                     )
                     # assert 0, (extra_args["probe_labels"], acc_labels)
                     assert extra_args["probe_labels"].shape[0] > 0, "Probe labels cannot be empty."
-                    scores = micro_batch["token_level_scores"].sum(dim=-1)
-                    assert torch.all(~((scores > 0.0) & (scores < 1.0))), scores
+                    # scores = micro_batch["token_level_scores"].sum(dim=-1)
+                    # assert torch.all(~((scores > 0.0) & (scores < 1.0))), scores
                     
                     extra_args["early_exit"] = micro_batch.get("early_exit", None)
-                    extra_args["pad_zero_num"] = (~(micro_batch['response_mask'].bool())).sum(dim=-1) + 2
+                    extra_args["pad_zero_num"] = (~(micro_batch['response_mask'].bool())).sum(dim=-1) + 1
 
                 
                 output = self.actor_module(

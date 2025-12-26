@@ -37,6 +37,7 @@ tmp/
 *.egg-info/
 .installed.cfg
 *.egg
+*.pkl
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -129,6 +130,7 @@ outputs
 tmp
 data
 output__*/
+pass/outputs_/
 flash_attn-*.whl
 core
 flash-attention

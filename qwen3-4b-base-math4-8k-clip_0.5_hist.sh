@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=2
 #SBATCH --mem=350G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH -J qwen3-4b_base_grpo_1e-6_math4_16k_clip_0.5_hist
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
@@ -72,8 +72,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    +trainer.p_min=0.3 \
-    +trainer.p_max=0.7 \
+    +trainer.p_min=0.25 \
+    +trainer.p_max=0.75 \
     +trainer.probe_max_init_value=1.0 \
     +trainer.probe_min_init_value=0.0 \
     "+algorithm.early_exit_grad=False" \
@@ -98,7 +98,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
@@ -157,7 +157,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \

@@ -45,12 +45,12 @@ VAL_FILES="['$aime2024_path', '$aime2025_path', '$amc23_path', '$olympiadbench_p
 mkdir -p $BASE_PATH/checkpoints/$exp_name
 
 # conda activate verl
+
 export VERL_AUTO_PADDING=1
 
-    # 
-
 python3 -m verl.trainer.main_ppo \
-    trainer.n_gpus_per_node=2 \
+    +algorithm.cutoff=True \
+    trainer.n_gpus_per_node=1 \
     trainer.val_before_train=False \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
@@ -61,22 +61,34 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    data.max_prompt_length=512 \
-    data.max_response_length=7680 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
+    data.max_prompt_length=500 \
+    data.max_response_length=5500 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=6000 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     "+algorithm.early_exit_grad=False" \
-    +algorithm.cutoff=True \
-    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base \
+    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/llama-3.2-1b \
     +reward_model.use_format_reward=False \
+    +trainer.probe_m=0.5 \
+    +trainer.p_min=0.3 \
+    +trainer.p_max=0.7 \
+    reward_model.reward_manager=dapo \
+    actor_rollout_ref.actor.clip_ratio_low=0.2 \
+    actor_rollout_ref.actor.clip_ratio_high=0.28 \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=true \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.len=1024 \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.log=false \
+    +reward_model.reward_kwargs.max_resp_len=5500 \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \
-    +trainer.probe_warmup_steps=0 \
-    +trainer.probe_stop_token_num=512 \
-    actor_rollout_ref.actor.optim.probe_lr=0.01 \
-    actor_rollout_ref.actor.probe_loss_coef=1 \
-    +trainer.probe_momentum=0.95 \
+    +trainer.probe_warmup_steps=3 \
+    +trainer.probe_stop_token_num=768 \
+    actor_rollout_ref.actor.optim.probe_lr=0.1 \
+    actor_rollout_ref.actor.probe_loss_coef=5.0 \
+    +trainer.probe_max_init_value=0.7 \
+    +trainer.probe_min_init_value=0.0 \
+    +trainer.probe_momentum=0.975 \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.use_probe=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -88,7 +100,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \

@@ -1,7 +1,7 @@
-# clip
-for step in 878; do
-    python scripts/legacy_model_merger.py merge  --backend fsdp  --local_dir  /u/haoboxu/work/verl/checkpoints/verl_examples/qwen3-4b_base_grpo_1e-6_math4_16k_clip/global_step_$step/actor --target_dir /u/haoboxu/work/verl/checkpoints/merged_checkpoints/clip/global_step_$step --hf_model_path /u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base
-done
+# # clip
+# for step in 150; do
+#     python scripts/legacy_model_merger.py merge  --backend fsdp  --local_dir  /u/haoboxu/work/verl/checkpoints/verl_examples/qwen3-1.7b_base_grpo_16/global_step_$step/actor --target_dir /u/haoboxu/work/verl/checkpoints/merged_checkpoints/qwen3_1.7b_baseline/global_step_$step --hf_model_path /u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base
+# done
 
 
 # dapo
@@ -10,6 +10,6 @@ done
 # done
 
 # clip_0.5
-# for step in 50 100 150 200; do
-#     python scripts/legacy_model_merger.py merge  --backend fsdp  --local_dir  /u/haoboxu/work/verl/checkpoints/verl_examples/qwen3-4b_base_grpo_1e-6_math4_16k_clip_0.5/global_step_$step/actor --target_dir /u/haoboxu/work/verl/checkpoints/merged_checkpoints/clip_0.5/global_step_$step --hf_model_path /u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base
-# done
+for step in 300; do
+    python scripts/legacy_model_merger.py merge  --backend fsdp  --local_dir  /u/haoboxu/work/verl/checkpoints/verl_examples/qwen3-1.7b_base_grpo_1e-6_math4_16k_clip_0.5_hist_0.4/global_step_$step/actor --target_dir /u/haoboxu/work/verl/checkpoints/merged_checkpoints/qwen3_1.7b_0.5_p0.4/global_step_$step --hf_model_path /u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base
+done

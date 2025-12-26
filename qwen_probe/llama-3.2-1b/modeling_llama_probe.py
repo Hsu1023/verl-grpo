@@ -1,4 +1,4 @@
-# modeling_qwen3_probe.py
+# modeling_llama_probe.py
 
 from dataclasses import dataclass
 from typing import Optional
@@ -6,42 +6,22 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.modeling_outputs import CausalLMOutputWithPast
-
-import logging
-import sys
-def setup_logger(name: str = __name__) -> logging.Logger:
-    fmt = "%(asctime)s [%(levelname)s] [%(process)d:%(threadName)s] %(name)s: %(message)s"
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(fmt))
-    logger = logging.getLogger(name)
-    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
-    logger.propagate = False  # avoid double logs if root has handlers
-    return logger
-
-logger = setup_logger()
-
 
 @dataclass
 class CausalLMOutputWithPastAndProbe(CausalLMOutputWithPast):
     probe_logits: Optional[torch.FloatTensor] = None
     probe_loss: Optional[torch.FloatTensor] = None
-
-class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
-    # Set auto class so Transformers/Hub saving does not inject a None key into auto_map.
-    _auto_class = "AutoModelForCausalLM"
+    
+class LlamaProbeForCausalLM(LlamaForCausalLM):
     def __init__(self, config):
         super().__init__(config)
-        # self.probe_head = nn.Linear(config.hidden_size, 1)
-        
         self.probe_head = nn.Sequential(
             nn.Linear(config.hidden_size, 128),
             nn.ReLU(),              # 也可以换成 nn.ReLU()
             nn.Linear(128, 1),
         )
-        # Initialize probe head explicitly when loading from base Qwen3 (weights won't exist).
-        # meta tensors can't host a generator; fall back to CPU in that case
         if isinstance(self.probe_head, nn.Linear):
             _gen_device = "cpu" if self.probe_head.weight.device.type == "meta" else self.probe_head.weight.device
         else:
@@ -54,15 +34,7 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
                 nn.init.xavier_uniform_(m.weight)   # 适合 GELU/ReLU 的通用选择
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-        # if hasattr(config, "initializer_range"):
-        #     # nn.init.normal_(self.probe_head.weight, mean=0.0, std=config.initializer_range, generator=_probe_gen)
-        #     nn.init.zeros_(self.probe_head.weight)
-        # else:
-        #     # nn.init.xavier_uniform_(self.probe_head.weight, generator=_probe_gen)
-        #     nn.init.zeros_(self.probe_head.weight)
-        # if self.probe_head.bias is not None:
-        #     nn.init.zeros_(self.probe_head.bias)
-
+                    
     def forward(
         self,
         input_ids=None,
@@ -70,7 +42,7 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
         probe_labels: Optional[torch.Tensor] = None,
         early_exit: Optional[torch.Tensor] = None,
         probe_stop_token_num: int = -1,
-        probe_stop_token_ids: Optional[list[int]] = [0, 3, 13, 30, 197, 198, 201, 271, 319, 568, 624, 936, 1773, 4292, 4894, 5267, 6313, 7810, 9338, 11319, 11843, 12947, 14085, 15087, 23586, 25046, 26126, 27275, 31716, 41295, 49964, 52402, 55807, 73594, 89478, 94280],
+        probe_stop_token_ids: Optional[list[int]] = [0, 3, 13, 30, 197, 198, 201, 271, 319, 400, 570, 627, 948, 1811, 4390, 4999, 5380, 5779, 6447, 7966, 9522, 11571, 12106, 13244, 14415, 15437, 24502, 26101, 27218, 28374, 32816, 42395, 51064, 53502, 56907, 74694, 90578, 95380],
         # compute_probe: bool = False,
         **kwargs,
     ):
@@ -211,3 +183,4 @@ class Qwen3ProbeForCausalLM(Qwen3ForCausalLM):
             probe_logits=probe_logits_,
             probe_loss=probe_loss,
         )
+

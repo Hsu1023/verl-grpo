@@ -90,6 +90,7 @@ class LogprobsProcessor:
     
     probe_stop_token_num: int = -1
     probe_stop_has_tested: bool = False
+    last_special_logits: Optional[float] = None
     probe_m: float = 0.5  # default value for probe distribution parameter
     probe_sampler_params: Optional[dict] = None
 
@@ -140,8 +141,10 @@ class LogprobsProcessor:
             and request.sampling_params.extra_args is not None \
             and request.sampling_params.extra_args.get("probe_sampler_params", None) is not None:
                 probe_sampler_params = request.sampling_params.extra_args.get("probe_sampler_params", None)
+                probe_stop_token_num = request.sampling_params.extra_args.get("probe_stop_token_num", -1)
         else:
             probe_sampler_params = None
+            probe_stop_token_num = -1
         # import ipdb; ipdb.set_trace()
     
         return cls(
@@ -256,7 +259,7 @@ class LogprobsProcessor:
         
     #     return ret # ret is True means stop generation
     
-    def check_probe_stop(self, probe_logits: List[float], new_token_num: int) -> bool:
+    def check_probe_stop(self, probe_logits: List[float], new_token_num: int, new_tokens: List[int], prompt_len: int) -> bool:
         """Return True if the probe logits trigger early stopping."""
         
         # def _posterior_q(x: np.ndarray, pi: float, a_pos: float, b_pos: float, a_neg: float, b_neg: float, clip_eps: float) -> np.ndarray:
@@ -307,14 +310,28 @@ class LogprobsProcessor:
             
         if getattr(self, 'probe_sampler_params', None) is None:
             return False
-        
+        # if self.accumulated_token_num > 0 and new_token_num > 1:
+        #     assert 0, (self.accumulated_token_num, new_tokens)
+        # if self.accumulated_token_num == 0:
+        #     self.temp_list = []
+        # if new_token_num == 1:
+        #     self.temp_list.append(new_tokens[0])
+            
         self.accumulated_token_num += new_token_num
         
-        assert len(probe_logits) == 1
         
-        if not self.probe_stop_has_tested and self.accumulated_token_num >= self.probe_stop_token_num:
+        
+        # print(new_token_num, new_tokens)
+        if new_token_num == 1:
+            if new_tokens[0] in set([0, 3, 13, 30, 197, 198, 201, 271, 319, 568, 624, 936, 1773, 4292, 4894, 5267, 6313, 7810, 9338, 11319, 11843, 12947, 14085, 15087, 23586, 25046, 26126, 27275, 31716, 41295, 49964, 52402, 55807, 73594, 89478, 94280]):
+                self.last_special_logits = probe_logits[0]
+                self.last_special_token = new_tokens[0]
+                # assert 0, self.last_special_logits
+        
+        if not self.probe_stop_has_tested and self.accumulated_token_num + prompt_len>= self.probe_stop_token_num and self.probe_stop_token_num > 0:
+            # print(0, self.last_special_logits, probe_logits[0], self.accumulated_token_num )
             self.probe_stop_has_tested = True
-            ret = not (random.random() < accept_prob_hist_gentle(probe_logits[0], self.probe_sampler_params))
+            ret = not (random.random() < accept_prob_hist_gentle(probe_logits[0] if self.last_special_logits is None else self.last_special_logits, self.probe_sampler_params))
             # assert 0, (self.accumulated_token_num, probe_logits[0], self.probe_min, self.probe_max, ret)
         else:
             ret = False

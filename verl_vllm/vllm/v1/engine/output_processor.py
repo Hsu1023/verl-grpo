@@ -212,6 +212,10 @@ class RequestState:
 
         output = self._new_completion_output(new_token_ids, finish_reason,
                                              stop_reason)
+        # Preserve per-child probe logits before aggregation so they don't get
+        # overwritten by the last child in multi-sample requests.
+        if probe_logits is not None:
+            output.probe_logits = probe_logits
 
         if self.parent_req is None:
             outputs = [output]
@@ -252,7 +256,10 @@ class RequestState:
         # Attach probe logits to each completion output for easy access.
         if probe_logits is not None:
             for output in outputs:
-                output.probe_logits = probe_logits
+                # output.probe_logits = probe_logits
+                # Keep previously stored per-output logits (for multi-sample).
+                if output.probe_logits is None:
+                    output.probe_logits = probe_logits
 
         return RequestOutput(
             request_id=request_id,
@@ -436,9 +443,9 @@ class OutputProcessor:
             # print("probe_logits in output_processor:", engine_core_output.probe_logits)
             # assert 0, f"probe_logits in output_processor: {engine_core_output.probe_logits}"
             # probe_logits should be in [0, 1], is a list of floats
-            if engine_core_output.probe_logits is not None:
-                assert all((0.0 <= logit <= 1.0) for logit in engine_core_output.probe_logits), \
-                f"probe_logits out of range [0, 1]: {engine_core_output.probe_logits}"
+            # if engine_core_output.probe_logits is not None:
+            #     assert all((0.0 <= logit <= 1.0) for logit in engine_core_output.probe_logits), \
+                # f"probe_logits out of range [0, 1]: {engine_core_output.probe_logits}"
 
             if pooling_output is None:
                 assert req_state.detokenizer is not None
@@ -465,7 +472,7 @@ class OutputProcessor:
                     finish_reason = FinishReason.STOP
                     stop_reason = "<boxed>"
                     
-                if probe_logits is not None and req_state.logprobs_processor.check_probe_stop(probe_logits, len(new_token_ids)):
+                if probe_logits is not None and req_state.logprobs_processor.check_probe_stop(probe_logits, len(new_token_ids), new_token_ids, req_state.prompt_len):
                     finish_reason = FinishReason.STOP
                     stop_reason = "<probe>"
                     

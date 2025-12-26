@@ -21,6 +21,9 @@ with open(path, 'r') as f:
 for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac', 'actor/ppo_kl', 'actor/kl_loss', 'actor/pg_loss']:
     matches = {}
     for line in lines:
+        # if 'Save' in line:
+        #     print(line)
+        #     exit(0)
         if content == 'rewards':
             pattern = r'step:([-+]?\d*\.\d+|\d+).*?critic/rewards/mean:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
@@ -80,12 +83,14 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
         plt.ylabel("Truncation Ratio over Steps")
     else:
         plt.title(f"{content} over Steps")
-
+    if content in ['grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath']:
+        print(content, y)
     # if content == 'rewards':
     #     out_path = f"{folder_path}/rewards.png"
     # elif content == 'len':
     #     out_path = f"{folder_path}/len.png"
     if content == 'clip_ratio':
+        print(len(y))
         out_path = f"{folder_path}/truncation_ratio.png"
     elif content == 'early_stop':
         out_path = f"{folder_path}/early_stop_ratio.png"

@@ -24,7 +24,7 @@ def get_llm(ckpt, args):
         skip_tokenizer_init=False,
         max_num_batched_tokens=args.max_length,
         trust_remote_code=True,
-        seed=1023,
+        seed=42,
         # verbose=False,
     )
 
@@ -81,6 +81,9 @@ def eval(llm, datasets, args):
                 gens = [o.text for o in outputs[j].outputs]
                 gen_length = [len(o.token_ids) for o in outputs[j].outputs]
                 probe_logits = [o.probe_logits for o in outputs[j].outputs]
+                # print(probe_logits)
+                # exit(0)
+                assert 0, probe_logits
                 logprobs = [[sum([-l.logprob for l in _.values()])/len(_) for _ in o.logprobs] for o in outputs[j].outputs]
                 # print(probe_logits)
                 # exit(0)
@@ -125,9 +128,9 @@ def eval(llm, datasets, args):
         # print(f"Model: {args.model_dir.split('/')[-1]}, Dataset: {dataset['name']}, Avg Score: {avg_score}, Pass Score: {pass_score}, Avg Length: {avg_length}")
         print(f"Model: {args.model_dir.split('/')[-1]}, Dataset: {dataset['name']}")
         
-        import pickle as pkl
-        with open(f"{args.model_dir.replace('/', '_')}_{dataset['name']}.pkl", "wb") as f:
-            pkl.dump(cur_dataset, f)
+        # import pickle as pkl
+        # with open(f"{args.model_dir.replace('/', '_')}_{dataset['name']}.pkl", "wb") as f:
+        #     pkl.dump(cur_dataset, f)
     return ret_results
     
 if __name__ == "__main__":
