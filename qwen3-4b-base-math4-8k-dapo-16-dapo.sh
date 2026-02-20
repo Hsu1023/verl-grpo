@@ -7,7 +7,7 @@
 #SBATCH --gpus-per-node=2
 #SBATCH --mem=300G
 #SBATCH --time=24:00:00
-#SBATCH -J qwen3-1.7b_base_grpo_16_dapo
+#SBATCH -J qwen3-4b_base_grpo_16_dapo
 #SBATCH -o outputs/%x.%j.out
 #SBATCH -e outputs/%x.%j.err
 
@@ -21,7 +21,7 @@ export HYDRA_FULL_ERROR=1
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
 save_path=$BASE_PATH/output
-exp_name=qwen3-1.7b_base_grpo_16_dapo
+exp_name=qwen3-4b_base_grpo_16_dapo
 project_name='verl_grpo_example_gsm8k'
 
 aime2024_path=$BASE_PATH/data/aime2024/test.parquet
@@ -65,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base \
+    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base \
     +reward_model.use_format_reward=False \
     reward_model.reward_manager=dapo \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
@@ -122,7 +122,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-1.7B-Base \
+    actor_rollout_ref.model.path=/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base \
     +reward_model.use_format_reward=False \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.ref.fsdp_config.use_orig_params=True \

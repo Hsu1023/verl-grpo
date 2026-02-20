@@ -24,7 +24,7 @@ def get_llm(ckpt, args):
         skip_tokenizer_init=False,
         max_num_batched_tokens=args.max_length,
         trust_remote_code=True,
-        seed=1023,
+        seed=1001,
         # verbose=False,
     )
 

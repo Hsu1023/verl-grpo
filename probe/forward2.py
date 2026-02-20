@@ -5,12 +5,12 @@ from tqdm import tqdm
 import argparse
 from sklearn.metrics import f1_score as compute_f1, roc_auc_score
 import numpy as np
-random.seed(42)
-torch.manual_seed(42)
-np.random.seed(42)
+random.seed(232)
+torch.manual_seed(232)
+np.random.seed(232)
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--data', type=str, default='dapo17k', choices=['math5', 'dapo17k'])
+parser.add_argument('--data', type=str, default='math5', choices=['math5', 'dapo17k'])
 args = parser.parse_args()
 
 raw_data = torch.load(f'./probe_data_qwen3-4b_{args.data}_traces10_with_hidden.pt')
@@ -37,7 +37,7 @@ def balance_data_set(data_set):
         negative_samples = random.sample(negative_samples, len(positive_samples))
     return positive_samples + negative_samples
 # data_set = balance_data_set(data_set)
-
+print(data_set[0]['label'])
 # random.shuffle(data_set)
 # print(set(raw_data['index_data']))
 idx_set = list(set([i.item() for i in raw_data['idx']]))
@@ -64,7 +64,7 @@ avg = 0.0
 # exit(0)
 training_ratio = 0.6
 validation_ratio = 0.2
-if False:
+if True:
     training_idx = set(idx_set[:int(len(idx_set) * training_ratio)])
     validation_idx = set(idx_set[int(len(idx_set) * training_ratio):int(len(idx_set) * (training_ratio + validation_ratio))])
     # testing_idx = set(idx_set[int(len(idx_set) * (training_ratio + validation_ratio)):])
@@ -79,11 +79,11 @@ if False:
     random.shuffle(training_data)
     random.shuffle(validation_data)
     random.shuffle(testing_data)
-else:
-    random.shuffle(data_set)
-    training_data = data_set[:int(len(data_set) * training_ratio)]
-    validation_data = data_set[int(len(data_set) * training_ratio):int(len(data_set) * (training_ratio + validation_ratio))]
-    testing_data = data_set[int(len(data_set) * (training_ratio + validation_ratio)):]
+# else:
+#     random.shuffle(data_set)
+#     training_data = data_set[:int(len(data_set) * training_ratio)]
+#     validation_data = data_set[int(len(data_set) * training_ratio):int(len(data_set) * (training_ratio + validation_ratio))]
+#     testing_data = data_set[int(len(data_set) * (training_ratio + validation_ratio)):]
     
 print(f'Training data size: {len(training_data)}, Validation data size: {len(validation_data)}, Testing data size: {len(testing_data)}')
 
@@ -124,7 +124,7 @@ class ProbeModel(nn.Module):
     
 probe_model = ProbeModel(input_size=data_set[0]['hidden_state'].shape[-1])
 criterion = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.AdamW(probe_model.parameters(), lr=0.001, weight_decay=1e-4)
+optimizer = torch.optim.AdamW(probe_model.parameters(), lr=0.001)
 num_epochs = 100
 batch_size = 32
 
@@ -132,14 +132,14 @@ batch_size = 32
 def get_batch(batch, mode='train'):
     if mode == 'train':
         
-        inputs = torch.stack([item['hidden_state'][0] for item in batch], dim=0)
+        inputs = torch.stack([item['hidden_state'][3] for item in batch], dim=0)
         labels = torch.tensor([1. if item['label'] else 0. for item in batch]).unsqueeze(1)
         
         
-        # inputs = torch.stack([item['hidden_state'][0] for item in batch] + [item['hidden_state'][9] for item in batch], dim=0)
+        # inputs = torch.stack([item['hidden_state'][3] for item in batch] + [item['hidden_state'][3] for item in batch], dim=0)
         # labels = torch.tensor([1. if item['label'] else 0. for item in batch] * 2).unsqueeze(1)
     else:
-        inputs = torch.stack([item['hidden_state'][0] for item in batch], dim=0)
+        inputs = torch.stack([item['hidden_state'][3] for item in batch], dim=0)
         labels = torch.tensor([1. if item['label'] else 0. for item in batch]).unsqueeze(1)
         # inputs = torch.stack([item['hidden_state'][0] for item in batch], dim=0)
         # labels = torch.tensor([1. if item['label'] else 0. for item in batch]).unsqueeze(1)
@@ -158,8 +158,11 @@ def test_batch(data, epoch, verbose=False, training_data=None, validation_data=N
             batch = data[i:i+batch_size]
             
             inputs, labels = get_batch(batch, 'test')
+            # print(inputs)
             outputs = probe_model(inputs)
-            logits = outputs.squeeze()
+            # print('o',outputs)
+            logits = outputs.squeeze(-1)
+            # print('o',logits)
             preds = (logits >= 0).int().tolist()
             all_scores.extend(logits.detach().cpu().tolist())
             all_preds.extend(preds)
@@ -178,8 +181,8 @@ def test_batch(data, epoch, verbose=False, training_data=None, validation_data=N
             auroc = roc_auc_score(all_labels, all_scores)
         except ValueError:
             auroc = float('nan')
-            
-        print(spearmanr(all_logits, all_labels))
+        # if verbose:
+        print(spearmanr(all_logits, all_labels).statistic)
         
         
     # print(f'Epoch {epoch+1}/{num_epochs}, Test Accuracy: {accuracy:.4f}, Test F1: {f1_score:.4f} Loss: {loss.item():.4f}')

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-datasets = ["DAPO17k", "MATH500"]
+datasets = ["MATH500","DAPO17k"]
 trace = [0.1232, 0.5607]
 head  = [0.7700, 0.7880]
 
@@ -22,9 +22,9 @@ bars_trace = ax.bar(x - w/2, trace, width=w, label="Group", alpha=0.6)
 ax.set_ylabel("Spearman Correlation", fontsize=16)
 ax.set_xticks(x)
 ax.set_xticklabels(datasets, fontsize=16)
-ax.set_ylim(0, 1.5)
+ax.set_ylim(0, 1.0)
 ax.grid(True, axis="y", alpha=0.3)
-ax.legend(fontsize=16)
+# ax.legend(fontsize=16)
 plt.yticks(fontsize=14)
 
 # Clean up spines a bit (similar "simple" look)

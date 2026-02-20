@@ -12,9 +12,9 @@ if args.folder is not None:
     folder_path = args.folder
 else:
     folder_path = '/u/haoboxu/work/verl/checkpoints/qwen3-4b_base_grpo_1e-6_math4_16k_dapo'
-path = f'{folder_path}/train.log'
+path = f'{folder_path}'
 
-
+xx = None
 datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025', 'early_stop', 'advantages']
 with open(path, 'r') as f:
     lines = f.readlines()
@@ -58,8 +58,6 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
         if match:
             value = float(match.group(2))
             # assert not (match.group(1) in matches and 'grpo_' in content), f"Duplicate step {match.group(1)} for {content}"
-            # print(line)
-            # exit(0)
             matches[match.group(1)] = value
     if len(matches) == 0:
         continue
@@ -86,7 +84,11 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
     else:
         plt.title(f"{content} over Steps")
     if content in ['grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath']:
-        print(content, x, y)
+        print(content, y)
+        if xx is None:
+            xx = y
+        else:
+            xx += y
     # if content == 'rewards':
     #     out_path = f"{folder_path}/rewards.png"
     # elif content == 'len':
@@ -100,10 +102,10 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
     else:
         out_path = f"{folder_path}/{content.split('/')[-1]}.png"
     plt.tight_layout()
-    plt.savefig(out_path, dpi=160)
-    plt.close()
+    # plt.savefig(out_path, dpi=160)
+    # plt.close()
     
-
+print(xx/3)
 import sys
 from typing import List, Optional, Tuple
 

@@ -18,48 +18,67 @@ path = f'{folder_path}/train.log'
 datasets = ['grpo_aime2024', 'grpo_gsm8k', 'grpo_amc23', 'grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath', 'grpo_aime2025', 'early_stop', 'advantages']
 with open(path, 'r') as f:
     lines = f.readlines()
-for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac', 'actor/ppo_kl', 'actor/kl_loss', 'actor/pg_loss']:
+for content in ['pos_label_ratio', 'time_per_step', 'probe_acc', 'generate', 'prob', 'update', 'early_stop','ref']:  # 'clip_ratio', 'early_stop', 'advantages'] + datasets:
     matches = {}
     for line in lines:
         # if 'Save' in line:
         #     print(line)
         #     exit(0)
-        if content == 'rewards':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?critic/rewards/mean:([-+]?\d*\.\d+|\d+)'
+        if content == 'pos_label_ratio':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/pos_label_ratio:np.float64\(([-+]?\d*\.\d+|\d+)\)'
             match = re.search(pattern, line)
-        elif content == 'len':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?response_length_non_aborted/mean:([-+]?\d*\.\d+|\d+)'
+        elif content =='time_per_step':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?perf/time_per_step:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
-        elif content == 'clip_ratio':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?response_length/clip_ratio:([-+]?\d*\.\d+|\d+)'
+        elif content == 'probe_acc':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/probe_acc:np.float64\(([-+]?\d*\.\d+|\d+)\)'            
             match = re.search(pattern, line)
-        elif content == 'actor/pg_clipfrac':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/pg_clipfrac:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        elif content == 'generate':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?timing_s/generate_sequences:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
-        elif content == 'actor/ppo_kl':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/ppo_kl:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        elif content == 'prob':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?timing_s/old_log_prob:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
-        elif content == 'actor/kl_loss':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/kl_loss:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        elif content == 'ref':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?timing_s/ref:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
-        elif content == 'actor/pg_loss':
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/pg_loss:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        elif content == 'update':
+            pattern = r'step:([-+]?\d*\.\d+|\d+).*?timing_s/update_actor:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
+            
+            
+        # elif content == 'len':
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?response_length_non_aborted/mean:([-+]?\d*\.\d+|\d+)'
+        #     match = re.search(pattern, line)
+        # elif content == 'clip_ratio':
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?response_length/clip_ratio:([-+]?\d*\.\d+|\d+)'
+        #     match = re.search(pattern, line)
+        # elif content == 'actor/pg_clipfrac':
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/pg_clipfrac:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        #     match = re.search(pattern, line)
+        # elif content == 'actor/ppo_kl':
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/ppo_kl:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        #     match = re.search(pattern, line)
+        # elif content == 'actor/kl_loss':
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/kl_loss:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        #     match = re.search(pattern, line)
+        # elif content == 'actor/pg_loss':
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?actor/pg_loss:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        #     match = re.search(pattern, line)
         elif 'early_stop' in content:
             pattern = r'step:([-+]?\d*\.\d+|\d+).*?early_stop/ratio:([-+]?\d*\.\d+|\d+)'
             match = re.search(pattern, line)
-        elif 'advantages' in content:
-            pattern = r'step:([-+]?\d*\.\d+|\d+).*?critic/advantages/mean:([-+]?\d*\.\d+|\d+)'
-            match = re.search(pattern, line)
-        else:
-            pattern = rf'step:([-+]?\d*\.\d+|\d+).*?val-core/{content}/acc/mean@1:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
-            match = re.search(pattern, line)
+        # elif 'advantages' in content:
+        #     pattern = r'step:([-+]?\d*\.\d+|\d+).*?critic/advantages/mean:([-+]?\d*\.\d+|\d+)'
+        #     match = re.search(pattern, line)
+        # else:
+        #     pattern = rf'step:([-+]?\d*\.\d+|\d+).*?val-core/{content}/acc/mean@1:np\.float64\(([-+]?\d*\.\d+|\d+)\)'
+        #     match = re.search(pattern, line)
 
         if match:
             value = float(match.group(2))
+            # assert 0, line
             # assert not (match.group(1) in matches and 'grpo_' in content), f"Duplicate step {match.group(1)} for {content}"
-            # print(line)
-            # exit(0)
             matches[match.group(1)] = value
     if len(matches) == 0:
         continue
@@ -86,7 +105,36 @@ for content in ['rewards'] + datasets + ['len', 'clip_ratio', 'actor/pg_clipfrac
     else:
         plt.title(f"{content} over Steps")
     if content in ['grpo_olympiadbench', 'grpo_math500', 'grpo_minervamath']:
-        print(content, x, y)
+        print(content, y)
+        
+    a, b = 300, 350
+    
+    if content == 'pos_label_ratio':
+        # print(len(x), y[200:400].max())
+        # print(len(x))
+        # print('pos', y[250:300].mean())
+        y = y[a:b]
+        print(y.mean())
+        print((y * (1-y)).mean())
+    if content == 'early_stop':
+        print('early', y[a:b].mean())
+    if content == 'time_per_step':
+        print('time', y[a:b].mean())
+    if content == 'probe_acc':
+        print(len(x))
+        # y=y[250:300]
+        print('acc', y.mean())
+        print((y*(1-y)).mean())
+    if content == 'prob':
+        print('prob', y[a:b].mean())
+    if content == 'generate':
+        print('generate', y[a:b].mean())
+    if content == 'ref':
+        print('ref', y[a:b].mean())
+    if content == 'update':
+        # print([i for i, _ in enumerate(y) if _ >63.04 and _ < 63.06])
+        print('update', y[a:b].mean())
+        
     # if content == 'rewards':
     #     out_path = f"{folder_path}/rewards.png"
     # elif content == 'len':
@@ -174,7 +222,8 @@ def make_collage(image_paths: List[str], out_path: str,
 
 # folder_path = '/home/yichen/verl/checkpoints/qwen3-1.7b_grpo_1e-6_math4'
 # imgs = ['rewards.png','len.png', 'grpo_aime2024.png', 'grpo_aime2025.png','grpo_amc23.png', 'grpo_gsm8k.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
-imgs = ['rewards.png','len.png', 'early_stop_ratio.png', 'advantages.png', 'kl_loss.png', 'pg_loss.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
-imgs = [f'{folder_path}/{img}' for img in imgs]
-out = f'{folder_path}/summary.png'
-make_collage(imgs, out)
+# imgs = ['rewards.png','len.png', 'early_stop_ratio.png', 'advantages.png', 'kl_loss.png', 'pg_loss.png', 'grpo_math500.png', 'grpo_minervamath.png', 'grpo_olympiadbench.png']
+# imgs = ['pos_label_ratio.png']
+# imgs = [f'{folder_path}/{img}' for img in imgs]
+# out = f'{folder_path}/summary.png'
+# make_collage(imgs, out)

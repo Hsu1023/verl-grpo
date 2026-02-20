@@ -1,3 +1,10 @@
+
+
+import multiprocessing as mp
+mp.set_start_method("spawn", force=True)
+
+import os
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"  # 双保险（可选）
 from scripts.legacy_model_merger import FSDPModelMerger, MegatronModelMerger, ModelMergerConfig
 import argparse
 import uuid
@@ -14,11 +21,12 @@ from tqdm import tqdm, trange
 import os
 os.environ["VLLM_LOG_LEVEL"] = "ERROR"  # 新进程生效更稳
 
+
 def get_llm(ckpt, args):
     return LLM(
         model=ckpt,
-        tensor_parallel_size=args.tp_size if hasattr(args, 'tp_size') else 1,
-        distributed_executor_backend="external_launcher",
+        # tensor_parallel_size=args.tp_size if hasattr(args, 'tp_size') else 1,
+        # distributed_executor_backend="external_launcher",
         gpu_memory_utilization=0.85,
         disable_custom_all_reduce=True,
         skip_tokenizer_init=False,
@@ -32,8 +40,9 @@ def get_llm(ckpt, args):
 def get_dataset(args):
     # print('val_dataset_str:', args.val_dataset)
     # exit(0)
-    val_datasets = json.loads(args.val_dataset)
-    print('val_dataset_str:', val_datasets)
+    # val_datasets = json.loads(args.val_dataset)
+    # print('val_dataset_str:', val_datasets)
+    val_datasets = ['/u/haoboxu/work/verl/data/aime2024/test.parquet']
     ret = []
     for dataset in val_datasets:
         data = list(Dataset.from_parquet(dataset))
@@ -70,47 +79,15 @@ def eval(llm, datasets, args):
         lengths = []
         cnt = 0
         cur_dataset = []
+        import time
+        t1 = time.time()
         for i in trange(0, total, batch_size):
             batch = data[i:i + batch_size]
             prompts = [ex['prompt'] for ex in batch]
             outputs = llm.chat(prompts, sampling_params=sampling_params)
-            # print(outputs[0].outputs[0].__dict__.keys())
-            # exit(0)
-            # print(outputs)
-            for j, ex in enumerate(batch):
-                gens = [o.text for o in outputs[j].outputs]
-                gen_length = [len(o.token_ids) for o in outputs[j].outputs]
-                probe_logits = [o.probe_logits for o in outputs[j].outputs]
-                # print(probe_logits)
-                # exit(0)
-                assert 0, probe_logits
-                logprobs = [[sum([-l.logprob for l in _.values()])/len(_) for _ in o.logprobs] for o in outputs[j].outputs]
-                # print(probe_logits)
-                # exit(0)
-                # assert 0, probe_logits
-                # logprobs = []
-                # probe_logit = []
-                score = [compute_score(gen, ex['reward_model']['ground_truth'], False)['acc'] for gen in gens]
-                # probe_conf = [compute_score(gen, ex['reward_model']['ground_truth'])['probe_confidence'] for gen in gens]
-                # assert 0, {
-                #     'id': cnt,
-                #     'prompt': ex['prompt'][0]['content'],
-                #     'text': gens,
-                #     'length': gen_length,
-                #     'probe_logits': probe_logits,
-                #     'logprobs': logprobs,
-                # }
-                cur_dataset.append({
-                    'id': cnt,
-                    'prompt': ex['prompt'][0]['content'],
-                    'text': gens,
-                    'length': gen_length,
-                    'probe_logits': probe_logits,
-                    'logprobs': logprobs,
-                    'score': score,
-                    'answer': ex['reward_model']['ground_truth'],
-                })
-                cnt += 1
+            continue
+        t2 = time.time()
+        assert 0, t2-t1
         # ret_results[dataset]=cur_dataset
         ret_results[dataset['name']] = cur_dataset
                 
@@ -136,13 +113,13 @@ def eval(llm, datasets, args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Legacy Model Merger")
 
-    parser.add_argument("--model_dir", type=str, required=True, help="Directory containing local checkpoints")
+    parser.add_argument("--model_dir", type=str, default='Qwen/Qwen3-4B', help="Directory containing local checkpoints")
 
-    parser.add_argument("--val_dataset", type=str, default="\{\}", help="Path to validation dataset parquet file")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for evaluation")
+    # parser.add_argument("--val_dataset", type=str, default="/u/haoboxu/work/verl/data/aime2024/test.parquet", help="Path to validation dataset parquet file")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for evaluation")
     parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallel size")
-    parser.add_argument("--max_length", type=int, default=16384, help="Maximum sequence length")
-    parser.add_argument("--pass_k", type=int, default=32, help="Number of samples to pass for evaluation")
+    parser.add_argument("--max_length", type=int, default=32000, help="Maximum sequence length")
+    parser.add_argument("--pass_k", type=int, default=4, help="Number of samples to pass for evaluation")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples per dataset")
     args = parser.parse_args()
     

@@ -1,7 +1,7 @@
 from transformers import AutoTokenizer
 
-# MODEL = "/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base"   # 改成你的模型或本地路径
-MODEL="/u/haoboxu/work/verl/qwen_probe/llama-3.2-1b"
+MODEL = "/u/haoboxu/work/verl/qwen_probe/Qwen3-4B-Base"   # 改成你的模型或本地路径
+# MODEL="/u/haoboxu/work/verl/qwen_probe/llama-3.2-1b"
 tokenizer = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=True, use_fast=True)
 
 specials = [

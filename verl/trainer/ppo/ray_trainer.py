@@ -1553,24 +1553,26 @@ class RayPPOTrainer:
                         #     self.pos_sample_list,
                         #     self.neg_sample_list
                         # )
-                        
+                        keep_rate = self.config.trainer.get("keep_rate", 0.5)
                         if self.config.trainer.get("p_min", False):
                             self.sampler_params = fit_hist_gentle_params(
                                 self.pos_sample_list,
                                 self.neg_sample_list,
                                 p_min=self.config.trainer.p_min,
-                                p_max=self.config.trainer.p_max
+                                p_max=self.config.trainer.p_max,
+                                keep_rate=keep_rate,
                             )
                         else:
                             self.sampler_params = fit_hist_gentle_params(
                                 self.pos_sample_list,
                                 self.neg_sample_list,
+                                keep_rate=keep_rate,
                             )
                         
                         
                         # print('probe_sampler_params', self.sampler_params)
-                        print('pos_sample_list', self.pos_sample_list)
-                        print('neg_sample_list', self.neg_sample_list)
+                        # print('pos_sample_list', self.pos_sample_list)
+                        # print('neg_sample_list', self.neg_sample_list)
                         
                         
                         momentum = self.config.trainer.get("probe_momentum", 0.95)

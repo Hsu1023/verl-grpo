@@ -7,8 +7,8 @@ from utils import *
 
 # result_path = '/u/haoboxu/work/verl/pass/_u_haoboxu_work_verl_checkpoints_merged_checkpoints_qwen3_4b_0.5_global_step_100_amc23.pkl'
 # result_path = '/u/haoboxu/work/verl/pass/_u_haoboxu_work_verl_checkpoints_merged_checkpoints_qwen3_4b_baseline_global_step_100_amc23.pkl'
-result_path = '/u/haoboxu/work/verl/pass/_u_haoboxu_work_verl_checkpoints_merged_checkpoints_qwen3_1.7b_0.5_p0.4_global_step_300_aime2025.pkl'
-# result_path = '/u/haoboxu/work/verl/pass/_u_haoboxu_work_verl_checkpoints_merged_checkpoints_qwen3_1.7b_baseline_global_step_150_amc23.pkl'
+result_path = '/u/haoboxu/work/verl/pass/_u_haoboxu_work_verl_checkpoints_merged_checkpoints_qwen3_1.7b_0.5_p0.2_dapo_global_step_200_aime2025.pkl'
+# result_path = '/u/haoboxu/work/verl/pass/_u_haoboxu_work_verl_checkpoints_merged_checkpoints_qwen3_1.7b_baseline_dapo_global_step_200_amc23.pkl'
 data = pkl.load(open(result_path, 'rb'))
 # assert 0, len(data)
 def add_score(dataset_name):
